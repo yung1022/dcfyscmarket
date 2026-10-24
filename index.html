@@ -120,6 +120,40 @@
               <tbody id="marketTableBody"></tbody>
             </table>
           </div>
+
+          <div class="trade-panel">
+            <div class="trade-header">
+              <h3>Trading</h3>
+              <span class="trade-live">Live</span>
+            </div>
+
+            <div class="portfolio-summary">
+              <div>
+                <span>Cash</span>
+                <strong id="cashBalance">$0.00</strong>
+              </div>
+              <div>
+                <span>Portfolio</span>
+                <strong id="portfolioValue">$0.00</strong>
+              </div>
+            </div>
+
+            <div class="trade-controls">
+              <label for="tradeQty">Shares</label>
+              <input id="tradeQty" type="number" min="1" value="1" />
+              <div class="trade-buttons">
+                <button id="buyBtn" class="trade-button buy">Buy</button>
+                <button id="sellBtn" class="trade-button sell">Sell</button>
+              </div>
+            </div>
+
+            <div id="tradeStatus" class="trade-status">Ready to trade.</div>
+
+            <div class="positions-box">
+              <h4>Open Positions</h4>
+              <ul id="positionsList" class="positions-list"></ul>
+            </div>
+          </div>
         </section>
       </main>
     </div>
