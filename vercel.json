@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/market-updater",
+      "schedule": "*/1 * * * *"
+    }
+  ]
+}

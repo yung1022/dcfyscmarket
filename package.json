@@ -1,0 +1,8 @@
+{
+  "name": "dcfyscmarket",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "vercel dev"
+  }
+}
