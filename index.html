@@ -21,7 +21,7 @@
         </div>
 
         <div class="topbar-actions">
-          <button id="loginButton" class="login-button">Login with Discord</button>
+          <button id="loginButton" class="login-button" type="button">Login with Discord</button>
           <div class="market-status">
             <span class="status-dot"></span>
             <span>Live Market</span>
@@ -161,6 +161,15 @@
         </section>
       </main>
     </div>
+
+    <script>
+      const loginButton = document.getElementById('loginButton');
+      if (loginButton) {
+        loginButton.addEventListener('click', () => {
+          window.location.href = '/api/auth/login';
+        });
+      }
+    </script>
 
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
