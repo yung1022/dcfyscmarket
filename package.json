@@ -4,5 +4,8 @@
   "scripts": {
     "dev": "vercel dev",
     "start": "vercel dev"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.4.0"
   }
 }
