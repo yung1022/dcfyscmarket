@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DC Market</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-wrap">
+          <div class="brand-mark">D</div>
+          <div>
+            <p class="eyebrow">DC FYSC</p>
+            <h1>Market Pulse</h1>
+          </div>
+        </div>
+        <div class="market-status">
+          <span class="status-dot"></span>
+          <span>Live Market</span>
+        </div>
+      </header>
+
+      <section class="overview-grid">
+        <div class="metric-card positive">
+          <label>DOW</label>
+          <strong id="dowValue">--</strong>
+          <span id="dowDelta">--</span>
+        </div>
+        <div class="metric-card positive">
+          <label>NASDAQ</label>
+          <strong id="nasdaqValue">--</strong>
+          <span id="nasdaqDelta">--</span>
+        </div>
+        <div class="metric-card positive">
+          <label>S&amp;P 500</label>
+          <strong id="spValue">--</strong>
+          <span id="spDelta">--</span>
+        </div>
+        <div class="metric-card neutral">
+          <label>Market Sentiment</label>
+          <strong id="sentimentValue">--</strong>
+          <span id="sentimentText">Waiting on data</span>
+        </div>
+      </section>
+
+      <main class="dashboard-grid">
+        <aside class="watchlist panel">
+          <div class="panel-header">
+            <h2>Watchlist</h2>
+            <button class="ghost-button">+ Add</button>
+          </div>
+          <ul id="stockList" class="stock-list"></ul>
+        </aside>
+
+        <section class="chart-panel panel">
+          <div class="panel-header stacked-header">
+            <div>
+              <p class="eyebrow">Selected Stock</p>
+              <h2 id="selectedCompany">--</h2>
+            </div>
+            <div class="ticker-box">
+              <span id="selectedSymbol">--</span>
+              <span id="selectedChange" class="pill positive">--</span>
+            </div>
+          </div>
+
+          <div class="price-row">
+            <div>
+              <span class="price-label">Price</span>
+              <h3 id="selectedPrice">--</h3>
+            </div>
+            <div class="last-updated">
+              <span>Updated</span>
+              <strong id="lastUpdated">--</strong>
+            </div>
+          </div>
+
+          <svg id="priceChart" viewBox="0 0 760 240" preserveAspectRatio="none"></svg>
+
+          <div class="stats-grid">
+            <div class="stat-box">
+              <span>Day Range</span>
+              <strong id="dayRange">--</strong>
+            </div>
+            <div class="stat-box">
+              <span>Volume</span>
+              <strong id="stockVolume">--</strong>
+            </div>
+            <div class="stat-box">
+              <span>Market Cap</span>
+              <strong id="marketCap">--</strong>
+            </div>
+            <div class="stat-box">
+              <span>52W Range</span>
+              <strong id="yearRange">--</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="table-panel panel">
+          <div class="panel-header">
+            <h2>Market Movers</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Company</th>
+                  <th>Price</th>
+                  <th>Change</th>
+                  <th>Volume</th>
+                </tr>
+              </thead>
+              <tbody id="marketTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>
