@@ -205,54 +205,38 @@ export async function tickMarketInDb() {
   const stocksRef = db.ref('stocks');
   const updatedAt = new Date().toISOString();
 
-  // Warm the RTDB SDK cache first. On a cold serverless instance a transaction
-  // can see a null local value and abort even when /stocks has data, which made
-  // POST fail with "No stocks found" while GET succeeded.
-  const current = await stocksRef.get();
-  if (!current.exists() || !Object.keys(current.val() || {}).length) {
+  // Explicit server read instead of an RTDB transaction. Transactions on a cold
+  // serverless instance can see a null local value and abort even when /stocks
+  // has data, which made POST fail with "No stocks found" while GET succeeded.
+  const snapshot = await stocksRef.get();
+  if (!snapshot.exists()) {
+    throw new Error('No stocks found in Firebase Realtime Database at /stocks.');
+  }
+  const current = snapshot.val();
+  if (!isRecord(current) || !Object.keys(current).length) {
     throw new Error('No stocks found in Firebase Realtime Database at /stocks.');
   }
 
-  const result = await stocksRef.transaction((current) => {
-    if (!isRecord(current) || !Object.keys(current).length) return;
+  const updates = {};
+  Object.entries(current).forEach(([symbol, stockValue]) => {
+    if (!isRecord(stockValue)) return;
+    const stock = { ...stockValue, symbol: stockValue.symbol || symbol };
+    const currentPrice = Number(stock.price);
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) return;
 
-    const stocks = { ...current };
-    Object.entries(stocks).forEach(([symbol, stockValue]) => {
-      if (!isRecord(stockValue)) return;
-      const stock = { ...stockValue, symbol: stockValue.symbol || symbol };
-      const currentPrice = Number(stock.price);
-      if (!Number.isFinite(currentPrice) || currentPrice <= 0) return;
-
-      const direction = Math.random() < 0.5 ? -1 : 1;
-      const percent = 0.001 + Math.random() * 0.009;
-      const movement = Math.max(0.01, Number((currentPrice * percent).toFixed(2)));
-      const nextPrice = Number(Math.max(0.01, currentPrice + direction * movement).toFixed(2));
-      stocks[symbol] = { ...stock, ...buildPriceUpdate(stock, nextPrice, updatedAt) };
-    });
-    return stocks;
+    const direction = Math.random() < 0.5 ? -1 : 1;
+    const percent = 0.001 + Math.random() * 0.009;
+    const movement = Math.max(0.01, Number((currentPrice * percent).toFixed(2)));
+    const nextPrice = Number(Math.max(0.01, currentPrice + direction * movement).toFixed(2));
+    updates[`stocks/${symbol}`] = { ...stock, ...buildPriceUpdate(stock, nextPrice, updatedAt) };
   });
 
-  if (!result.committed) {
-    // The transaction reported no committable data. Distinguish "database is
-    // actually empty" from "we could not read the database at all" (wrong
-    // databaseURL, denied rules, network failure), because the RTDB SDK
-    // reports both as a null transaction value.
-    try {
-      const readBack = await stocksRef.get();
-      if (readBack.exists()) {
-        throw new Error(`Could not commit a market tick even though /stocks contains ${Object.keys(readBack.val() || {}).length} entries. Check Realtime Database rules and that FIREBASE_DATABASE_URL points at the instance holding the data.`);
-      }
-    } catch (error) {
-      if (!/No stocks found|Could not commit/.test(error.message || '')) {
-        throw new Error(`Could not read /stocks while ticking the market: ${error.message}`);
-      }
-    }
-    throw new Error('No stocks found in Firebase Realtime Database at /stocks.');
+  if (!Object.keys(updates).length) {
+    throw new Error('/stocks contains entries but none has a valid positive numeric `price` to tick.');
   }
-  await db.ref('market/summary').transaction((current) => ({
-    ...(isRecord(current) ? current : {}),
-    updatedAt
-  }));
+
+  // Atomic multi-path write of every ticked stock plus the summary timestamp.
+  await db.ref().update({ ...updates, 'market/summary/updatedAt': updatedAt });
   return getMarketDataFromDb();
 }
 
