@@ -1,7 +1,7 @@
 const elements = {
-  stockList: document.getElementById('stockList'),
+  channelList: document.getElementById('stockList'),
   marketTableBody: document.getElementById('marketTableBody'),
-  selectedCompany: document.getElementById('selectedCompany'),
+  selectedChannel: document.getElementById('selectedCompany'),
   selectedSymbol: document.getElementById('selectedSymbol'),
   selectedChange: document.getElementById('selectedChange'),
   selectedPrice: document.getElementById('selectedPrice'),
@@ -19,7 +19,7 @@ const elements = {
   portfolioValue: document.getElementById('portfolioValue'),
   positionsList: document.getElementById('positionsList'),
   marketStatusText: document.getElementById('marketStatusText'),
-  marketTickButton: document.getElementById('marketTickButton'),
+  marketTickButton: document.getElementById('refreshButton'),
 };
 
 let stocks = [];
@@ -79,7 +79,7 @@ function renderWatchlist() {
     const summary = document.createElement('span');
     const icon = document.createElement('span');
     const name = document.createElement('span');
-    const company = document.createElement('strong');
+    const channel = document.createElement('strong');
     const symbol = document.createElement('span');
     const price = document.createElement('span');
     const value = document.createElement('strong');
@@ -92,13 +92,13 @@ function renderWatchlist() {
     name.className = 'stock-name';
     price.className = 'stock-price';
     icon.textContent = stock.symbol.slice(0, 1);
-    company.textContent = stock.company;
+    channel.textContent = stock.company;
     symbol.textContent = stock.symbol;
     value.textContent = formatMoney(stock.price);
     change.textContent = `${Number(stock.change) > 0 ? '+' : ''}${Number(stock.change || 0).toFixed(2)}%`;
     change.className = Number(stock.change) < 0 ? 'negative' : 'positive';
 
-    name.append(company, symbol);
+    name.append(channel, symbol);
     summary.append(icon, name);
     price.append(value, change);
     button.append(summary, price);
@@ -107,7 +107,7 @@ function renderWatchlist() {
     return item;
   });
 
-  elements.stockList.replaceChildren(...items);
+  elements.channelList.replaceChildren(...items);
 }
 
 function renderMarketTable() {
@@ -150,7 +150,7 @@ function renderSelectedStock() {
   if (!stock) return;
 
   selectedSymbol = stock.symbol;
-  elements.selectedCompany.textContent = stock.company;
+  elements.selectedChannel.textContent = stock.company;
   elements.selectedSymbol.textContent = stock.symbol;
   elements.selectedPrice.textContent = formatMoney(stock.price);
   elements.selectedChange.textContent = `${Number(stock.change) > 0 ? '+' : ''}${Number(stock.change || 0).toFixed(2)}%`;
@@ -184,9 +184,9 @@ function renderPriceChart(history) {
   elements.priceChart.innerHTML = `<defs><linearGradient id="lineGradient" x1="0" x2="1"><stop offset="0%" stop-color="#25c98a"/><stop offset="100%" stop-color="#66e0b0"/></linearGradient><linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#25c98a" stop-opacity=".26"/><stop offset="100%" stop-color="#25c98a" stop-opacity="0"/></linearGradient></defs><path class="chart-area" d="${area}"/><path class="chart-line" d="${line}"/>`;
 }
 
-async function loadMarket(advance = false) {
+async function loadMarket() {
   try {
-    const snapshot = await requestJson('/api/market-updater', advance ? { method: 'POST' } : {});
+    const snapshot = await requestJson('/api/market-updater');
     stocks = snapshot.stocks || [];
     if (!stocks.some((stock) => stock.symbol === selectedSymbol)) {
       selectedSymbol = stocks[0]?.symbol || '';
@@ -202,10 +202,10 @@ async function loadMarket(advance = false) {
   }
 }
 
-async function triggerMarketTick() {
+async function triggerRefresh() {
   elements.marketTickButton.disabled = true;
-  elements.marketStatusText.textContent = 'Updating market...';
-  await loadMarket(true);
+  elements.marketStatusText.textContent = 'Refreshing market...';
+  await loadMarket();
   elements.marketTickButton.disabled = false;
 }
 
@@ -273,7 +273,7 @@ async function submitTrade(action) {
 
 elements.buyBtn.addEventListener('click', () => submitTrade('buy'));
 elements.sellBtn.addEventListener('click', () => submitTrade('sell'));
-elements.marketTickButton.addEventListener('click', triggerMarketTick);
+elements.marketTickButton.addEventListener('click', triggerRefresh);
 window.addEventListener('discord-session-ready', () => loadPortfolio());
 
 setTradeControls(false);
