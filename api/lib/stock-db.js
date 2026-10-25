@@ -40,6 +40,71 @@ function getMemoryStore() {
   return globalThis.__dcfyscmarketStocks;
 }
 
+function getMemoryUserStore() {
+  if (!globalThis.__dcfyscmarketUsers) {
+    globalThis.__dcfyscmarketUsers = {};
+  }
+
+  return globalThis.__dcfyscmarketUsers;
+}
+
+export async function upsertDiscordUser(discordUserId, discordUsername) {
+  const now = new Date().toISOString();
+  const app = initAdmin();
+
+  if (!app) {
+    const store = getMemoryUserStore();
+    const existing = store[discordUserId] || {};
+    const data = {
+      ...existing,
+      discordUserId,
+      discordUsername,
+      createdAt: existing.createdAt || now,
+      lastLoginAt: now,
+      updatedAt: now
+    };
+
+    store[discordUserId] = data;
+    return { mode: 'memory', data };
+  }
+
+  try {
+    const ref = admin.firestore().collection('users').doc(discordUserId);
+    const snapshot = await ref.get();
+    const existing = snapshot.exists ? snapshot.data() : {};
+    const data = {
+      ...existing,
+      discordUserId,
+      discordUsername,
+      createdAt: existing.createdAt || now,
+      lastLoginAt: now,
+      updatedAt: now
+    };
+
+    await ref.set(data, { merge: true });
+    return { mode: 'firebase-admin-firestore', data };
+  } catch (error) {
+    try {
+      const ref = admin.database().ref('users').child(discordUserId);
+      const snapshot = await ref.once('value');
+      const existing = snapshot.val() || {};
+      const data = {
+        ...existing,
+        discordUserId,
+        discordUsername,
+        createdAt: existing.createdAt || now,
+        lastLoginAt: now,
+        updatedAt: now
+      };
+
+      await ref.set(data);
+      return { mode: 'firebase-admin-rtdb', data };
+    } catch (rtdbError) {
+      throw new Error(`Firebase user write failed: ${rtdbError.message || rtdbError}`);
+    }
+  }
+}
+
 export async function saveStockToDb(symbol, stock) {
   const normalizedSymbol = String(symbol || '').trim().toUpperCase();
   const payload = {
