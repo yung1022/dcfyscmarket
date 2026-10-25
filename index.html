@@ -169,6 +169,52 @@
           window.location.href = '/api/auth/login?authredirect=market';
         });
       }
+
+      async function initializeDiscordSession() {
+        const params = new URLSearchParams(window.location.search);
+        const discordUserId = params.get('discordUserId');
+        const discordUsername = params.get('discordUsername');
+
+        try {
+          if (discordUserId && discordUsername) {
+            const response = await fetch('/api/auth/callback', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({
+                discordUserId,
+                discordUsername,
+                avatar: params.get('avatar') || '',
+                connectedAt: params.get('connectedAt') || ''
+              })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || 'Login failed.');
+
+            ['discordUserId', 'discordUsername', 'avatar', 'connectedAt'].forEach((key) => params.delete(key));
+            const cleanUrl = `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`;
+            window.history.replaceState({}, document.title, cleanUrl);
+            showDiscordUser(result.user);
+            return;
+          }
+
+          const response = await fetch('/api/auth/session', { credentials: 'same-origin' });
+          if (!response.ok) return;
+          const result = await response.json();
+          showDiscordUser(result.user);
+        } catch (error) {
+          console.error('Unable to restore Discord login:', error);
+        }
+      }
+
+      function showDiscordUser(user) {
+        if (!loginButton || !user) return;
+        loginButton.textContent = `@${user.discordUsername}`;
+        loginButton.disabled = true;
+        loginButton.title = `Discord user ID: ${user.discordUserId}`;
+      }
+
+      initializeDiscordSession();
     </script>
 
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>

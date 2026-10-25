@@ -1,4 +1,5 @@
 import { getPortfolio, placeTrade, seedIfNeeded } from './lib/market.js';
+import { getDiscordSession } from './lib/discord-session.js';
 
 export default async function handler(req, res) {
   try {
@@ -8,7 +9,13 @@ export default async function handler(req, res) {
       return res.status(405).json({ ok: false, message: 'Only POST is allowed.' });
     }
 
-    const { userId = 'demo', symbol, action, quantity } = req.body || {};
+    const session = getDiscordSession(req);
+    if (!session) {
+      return res.status(401).json({ ok: false, message: 'Log in with Discord to trade.' });
+    }
+
+    const { symbol, action, quantity } = req.body || {};
+    const userId = session.discordUserId;
     const tradeResult = placeTrade({ userId, symbol, action, quantity });
 
     if (!tradeResult.ok) {

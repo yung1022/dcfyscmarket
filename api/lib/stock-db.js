@@ -48,7 +48,7 @@ function getMemoryUserStore() {
   return globalThis.__dcfyscmarketUsers;
 }
 
-export async function upsertDiscordUser(discordUserId, discordUsername) {
+export async function upsertDiscordUser(discordUserId, discordUsername, profile = {}) {
   const now = new Date().toISOString();
   const app = initAdmin();
 
@@ -57,6 +57,7 @@ export async function upsertDiscordUser(discordUserId, discordUsername) {
     const existing = store[discordUserId] || {};
     const data = {
       ...existing,
+      ...profile,
       discordUserId,
       discordUsername,
       createdAt: existing.createdAt || now,
@@ -74,6 +75,7 @@ export async function upsertDiscordUser(discordUserId, discordUsername) {
     const existing = snapshot.exists ? snapshot.data() : {};
     const data = {
       ...existing,
+      ...profile,
       discordUserId,
       discordUsername,
       createdAt: existing.createdAt || now,
@@ -90,6 +92,7 @@ export async function upsertDiscordUser(discordUserId, discordUsername) {
       const existing = snapshot.val() || {};
       const data = {
         ...existing,
+        ...profile,
         discordUserId,
         discordUsername,
         createdAt: existing.createdAt || now,
