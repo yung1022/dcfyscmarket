@@ -178,6 +178,14 @@ export async function getMarketDataFromDb() {
     .map(([symbol, stock]) => ({ ...stock, symbol: stock.symbol || symbol }))
     .filter((stock) => stock.symbol && Number.isFinite(Number(stock.price)) && Number(stock.price) > 0);
 
+  if (!stocks.length && stocksSnapshot.exists()) {
+    const entries = Object.entries(stocksValue).length;
+    throw new Error(
+      `/stocks contains ${entries} entries but none has a valid price. ` +
+      'Each quote needs a positive numeric `price` and a `symbol` (the object key is used when `symbol` is absent).'
+    );
+  }
+
   const summaryRef = db.ref('market/summary');
   const now = new Date().toISOString();
   const summaryResult = summarySnapshot.exists()
@@ -215,7 +223,23 @@ export async function tickMarketInDb() {
     return stocks;
   });
 
-  if (!result.committed) throw new Error('No stocks found in Firebase Realtime Database at /stocks.');
+  if (!result.committed) {
+    // The transaction reported no committable data. Distinguish "database is
+    // actually empty" from "we could not read the database at all" (wrong
+    // databaseURL, denied rules, network failure), because the RTDB SDK
+    // reports both as a null transaction value.
+    try {
+      const readBack = await stocksRef.get();
+      if (readBack.exists()) {
+        throw new Error(`Could not commit a market tick even though /stocks contains ${Object.keys(readBack.val() || {}).length} entries. Check Realtime Database rules and that FIREBASE_DATABASE_URL points at the instance holding the data.`);
+      }
+    } catch (error) {
+      if (!/No stocks found|Could not commit/.test(error.message || '')) {
+        throw new Error(`Could not read /stocks while ticking the market: ${error.message}`);
+      }
+    }
+    throw new Error('No stocks found in Firebase Realtime Database at /stocks.');
+  }
   await db.ref('market/summary').transaction((current) => ({
     ...(isRecord(current) ? current : {}),
     updatedAt
