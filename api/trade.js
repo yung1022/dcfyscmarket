@@ -1,20 +1,37 @@
-import { tickMarket, getMarketSnapshot, seedIfNeeded } from './lib/market.js';
+import { getPortfolio, placeTrade, seedIfNeeded } from './lib/market.js';
+import { getDiscordSession } from './lib/discord-session.js';
 
 export default async function handler(req, res) {
   try {
     seedIfNeeded();
 
-    if (req.method === 'GET' && req.query.read === '1') {
-      return res.status(200).json(getMarketSnapshot());
+    if (req.method !== 'POST') {
+      return res.status(405).json({ ok: false, message: 'Only POST is allowed.' });
     }
 
-    if (req.method === 'GET' || req.method === 'POST') {
-      const snapshot = tickMarket();
-      return res.status(200).json({ ok: true, ...snapshot });
+    const session = getDiscordSession(req);
+    if (!session) {
+      return res.status(401).json({ ok: false, message: 'Log in with Discord to trade.' });
     }
 
-    return res.status(405).json({ ok: false, message: 'Method not allowed.' });
+    const { action, symbol, quantity } = req.body || {};
+    const trade = placeTrade({
+      userId: session.discordUserId,
+      action,
+      symbol,
+      quantity
+    });
+
+    if (!trade.ok) {
+      return res.status(400).json(trade);
+    }
+
+    return res.status(200).json({
+      ok: true,
+      ...trade,
+      portfolio: getPortfolio(session.discordUserId)
+    });
   } catch (error) {
-    return res.status(500).json({ ok: false, message: error.message || 'Unable to update market.' });
+    return res.status(500).json({ ok: false, message: error.message || 'Trade failed.' });
   }
 }

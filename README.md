@@ -7,9 +7,10 @@ A stock-market dashboard designed for Vercel.
 - `index.html` — dashboard UI
 - `styles.css` — market-dashboard styling
 - `script.js` — fetches market data and sends buy/sell requests
-- `api/market-updater.js` — updates prices with noise and drift
-- `api/trade.js` — executes buy/sell requests
-- `api/portfolio.js` — returns the current portfolio state
+- `api/market-updater.js` — returns or advances simulated prices
+- `api/trade.js` — executes authenticated simulated trades
+- `api/portfolio.js` — returns the signed-in user's portfolio
+- `api/auth/session.js` — returns the signed-in Discord profile
 - `api/lib/market.js` — shared market engine and portfolio logic
 - `vercel.json` — includes the cron schedule for live updates
 
@@ -22,60 +23,26 @@ npm run dev
 
 Then open the local Vercel URL.
 
-## Vercel cron job
+## API workflow
 
-The project includes a scheduled job in `vercel.json`:
+- `GET /api/market-updater` returns the current market snapshot.
+- `POST /api/market-updater` advances the simulated market by one tick.
+- `GET /api/portfolio` returns the current user's cash and holdings. It requires the Discord login cookie.
+- `POST /api/trade` buys or sells simulated shares. It requires the Discord login cookie and accepts `{ "symbol": "AAPL", "action": "buy", "quantity": 3 }`.
+- The dashboard reads the snapshot at startup, advances prices every 15 seconds, and refreshes a signed-in portfolio every 30 seconds.
 
-```json
-{
-  "crons": [
-    {
-      "path": "/api/market-updater",
-      "schedule": "*/1 * * * *"
-    }
-  ]
-}
-```
+The current quote source is a simulator in `api/lib/market.js`; it does not receive exchange prices. Market and portfolio state is stored in server memory, so it can reset or diverge between serverless invocations. Discord profiles are upserted to Firebase, but simulated holdings and trades are not yet persisted there.
 
-This calls the market updater each minute.
+## Connecting real market data
 
-## Market engine
+To use actual quotes, connect a market-data provider (for example, Finnhub, Twelve Data, or Polygon) from a server API route:
 
-The stock engine uses:
-- drift per stock
-- random volatility/noise
-- price history tracking
-- portfolio cash and holdings
+1. Choose a provider and confirm its plan permits your intended display, refresh rate, and user count.
+2. Add its API key to the Vercel project as an environment variable. Do not put the key in `index.html` or `script.js`.
+3. Replace the simulated quote generation in `api/lib/market.js` with a server-side fetch in `api/market-updater.js`. Normalize the provider response into the existing stock fields: `symbol`, `price`, `change`, `volume`, `dayRange`, `yearRange`, `history`, and `updatedAt`.
+4. Persist normalized quotes and user portfolios/trades in Firebase (using the Admin SDK from API routes), rather than relying on `globalThis` memory.
+5. Have the browser continue reading only your own `/api/market-updater` endpoint. Add a scheduled updater or provider streaming service if quotes must update when no browser is open.
 
-## Buy / sell API
+The current buy/sell endpoints only simulate trades. Real-money orders require a broker API, explicit user authorization, and additional security and compliance work; a quote-data API alone cannot execute them.
 
-Example request:
-
-```bash
-curl -X POST http://localhost:3000/api/trade \
-  -H "Content-Type: application/json" \
-  -d '{"userId":"demo","symbol":"AAPL","action":"buy","quantity":3}'
-```
-
-Example response:
-
-```json
-{
-  "ok": true,
-  "action": "buy",
-  "symbol": "AAPL",
-  "quantity": 3,
-  "price": 214.86,
-  "total": 644.58,
-  "cash": 99355.42,
-  "portfolio": {
-    "userId": "demo",
-    "cash": 99355.42,
-    "portfolioValue": 100000,
-    "holdings": []
-  }
-}
-```
-
-Note: this version keeps market state in server memory for a simple demo and is suitable for Vercel prototyping. For production persistence, connect the API to Supabase or Firebase.
-
+Treat the simulator as a development demo, not as investment data or a brokerage service.

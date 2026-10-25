@@ -89,8 +89,8 @@ function ensureState() {
 export function getMarketSnapshot() {
   const state = ensureState();
   const stocks = Object.values(state.stocks).map((stock) => {
-    const last = stock.history[stock.history.length - 1] || stock.price;
-    const change = Number((((stock.price - last) / last) * 100).toFixed(2));
+    const previous = stock.history[stock.history.length - 2] || stock.price;
+    const change = Number((((stock.price - previous) / previous) * 100).toFixed(2));
 
     return {
       symbol: stock.symbol,
@@ -101,7 +101,7 @@ export function getMarketSnapshot() {
       marketCap: stock.marketCap,
       yearRange: stock.yearRange,
       dayRange: stock.dayRange,
-      sentiment: stock.price >= last ? 'Bullish' : 'Bearish',
+      sentiment: stock.price >= previous ? 'Bullish' : 'Bearish',
       history: stock.history,
       updatedAt: state.lastUpdated
     };
