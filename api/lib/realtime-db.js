@@ -204,6 +204,15 @@ export async function tickMarketInDb() {
   const db = getRealtimeDb();
   const stocksRef = db.ref('stocks');
   const updatedAt = new Date().toISOString();
+
+  // Warm the RTDB SDK cache first. On a cold serverless instance a transaction
+  // can see a null local value and abort even when /stocks has data, which made
+  // POST fail with "No stocks found" while GET succeeded.
+  const current = await stocksRef.get();
+  if (!current.exists() || !Object.keys(current.val() || {}).length) {
+    throw new Error('No stocks found in Firebase Realtime Database at /stocks.');
+  }
+
   const result = await stocksRef.transaction((current) => {
     if (!isRecord(current) || !Object.keys(current).length) return;
 
