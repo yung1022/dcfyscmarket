@@ -62,12 +62,8 @@ function setTradeControls(enabled) {
 }
 
 function renderMarketSummary(summary = {}) {
-  document.getElementById('dowValue').textContent = summary.dow || '--';
-  document.getElementById('dowDelta').textContent = summary.dowDelta || '--';
-  document.getElementById('nasdaqValue').textContent = summary.nasdaq || '--';
-  document.getElementById('nasdaqDelta').textContent = summary.nasdaqDelta || '--';
-  document.getElementById('spValue').textContent = summary.sp || '--';
-  document.getElementById('spDelta').textContent = summary.spDelta || '--';
+  document.getElementById('marketTotalValue').textContent = summary.marketTotalValue || '--';
+  document.getElementById('marketTotalDelta').textContent = summary.marketTotalDelta || '--';
   document.getElementById('sentimentValue').textContent = summary.sentiment || '--';
   document.getElementById('sentimentText').textContent = summary.sentimentText || '--';
 }

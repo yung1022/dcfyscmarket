@@ -167,6 +167,17 @@ export async function getStockFromDb(symbol) {
   return result.snapshot.val();
 }
 
+function computeMarketTotalValue(stocks) {
+  const total = stocks.reduce((sum, stock) => {
+    const marketCap = Number(stock.marketCap);
+    const value = Number(stock.value);
+    const fallback = Number(stock.price) || 0;
+    const contribution = Number.isFinite(marketCap) && marketCap > 0 ? marketCap : (Number.isFinite(value) && value > 0 ? value : fallback);
+    return sum + contribution;
+  }, 0);
+  return Number(total.toFixed(2));
+}
+
 export async function getMarketDataFromDb() {
   const db = getRealtimeDb();
   const [stocksSnapshot, summarySnapshot] = await Promise.all([
@@ -191,7 +202,10 @@ export async function getMarketDataFromDb() {
   const summaryResult = summarySnapshot.exists()
     ? null
     : await summaryRef.transaction((current) => current || { updatedAt: now });
-  const marketSummary = summarySnapshot.exists() ? summarySnapshot.val() : summaryResult.snapshot.val();
+  const marketSummary = {
+    ...(summarySnapshot.exists() ? summarySnapshot.val() : summaryResult.snapshot.val()),
+    marketTotalValue: computeMarketTotalValue(stocks)
+  };
 
   return {
     stocks,
@@ -313,8 +327,14 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
   let failure = 'Trade could not be committed.';
   let tradeResult;
 
+  // Explicit server read first. The transaction handler below can be invoked with
+  // a null/stale value on its first speculative run; falling back to this snapshot
+  // prevents a false "Not enough cash" failure from aborting a valid trade.
+  const preRead = await rootRef.get();
+  const preReadRoot = isRecord(preRead.val()) ? preRead.val() : {};
+
   const result = await rootRef.transaction((current) => {
-    const root = isRecord(current) ? current : {};
+    const root = isRecord(current) ? current : preReadRoot;
     const stocks = isRecord(root.stocks) ? { ...root.stocks } : {};
     const users = isRecord(root.users) ? { ...root.users } : {};
     const stock = isRecord(stocks[normalizedSymbol])
