@@ -75,7 +75,7 @@ function ensureState() {
       stocks: Object.fromEntries(DEFAULT_STOCKS.map((stock) => [stock.symbol, { ...stock }])),
       users: {
         demo: {
-          cash: 100000,
+          cash: 0,
           holdings: {}
         }
       },
@@ -149,7 +149,7 @@ export function tickMarket() {
 
 export function getPortfolio(userId = 'demo') {
   const state = ensureState();
-  const user = state.users[userId] || { cash: 100000, holdings: {} };
+  const user = state.users[userId] || { cash: 0, holdings: {} };
   const snapshot = getMarketSnapshot();
 
   let portfolioValue = user.cash;
@@ -189,7 +189,7 @@ export function placeTrade({ userId = 'demo', symbol, action, quantity }) {
   }
 
   if (!state.users[userId]) {
-    state.users[userId] = { cash: 100000, holdings: {} };
+    state.users[userId] = { cash: 0, holdings: {} };
   }
 
   const user = state.users[userId];

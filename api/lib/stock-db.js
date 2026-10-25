@@ -72,6 +72,23 @@ function buildPriceUpdate(stock, nextPrice, updatedAt) {
   return update;
 }
 
+function buildDefaultStock(symbol, updatedAt = new Date().toISOString()) {
+  return {
+    symbol,
+    company: symbol,
+    price: 0.01,
+    change: 0,
+    volume: '0',
+    marketCap: 0.01,
+    value: 0.01,
+    dayRange: '0.01 - 0.01',
+    yearRange: '0.01 - 0.01',
+    history: [0.01],
+    createdAt: updatedAt,
+    updatedAt
+  };
+}
+
 export async function upsertDiscordUser(discordUserId, discordUsername, profile = {}) {
   const now = new Date().toISOString();
   const ref = getFirestoreDb().collection('users').doc(discordUserId);
@@ -82,7 +99,7 @@ export async function upsertDiscordUser(discordUserId, discordUsername, profile 
     ...profile,
     discordUserId,
     discordUsername,
-    cash: Number.isFinite(Number(existing.cash)) ? Number(existing.cash) : 100000,
+    cash: Number.isFinite(Number(existing.cash)) ? Number(existing.cash) : 0,
     holdings: existing.holdings || {},
     createdAt: existing.createdAt || now,
     lastLoginAt: now,
@@ -144,8 +161,18 @@ export async function createStockForCompany(company, stock) {
 
 export async function getStockFromDb(symbol) {
   const normalizedSymbol = String(symbol || '').trim().toUpperCase();
-  const snapshot = await getFirestoreDb().collection('stocks').doc(normalizedSymbol).get();
-  return snapshot.exists ? snapshot.data() : null;
+  if (!/^[A-Z0-9.]{1,16}$/.test(normalizedSymbol)) return null;
+
+  const db = getFirestoreDb();
+  const ref = db.collection('stocks').doc(normalizedSymbol);
+  return db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    if (snapshot.exists) return snapshot.data();
+
+    const stock = buildDefaultStock(normalizedSymbol);
+    transaction.create(ref, stock);
+    return stock;
+  });
 }
 
 export async function getMarketDataFromDb() {
@@ -158,10 +185,24 @@ export async function getMarketDataFromDb() {
     .map((document) => document.data())
     .filter((stock) => stock.symbol && Number.isFinite(Number(stock.price)) && Number(stock.price) > 0);
 
+  let marketSummary;
+  if (summarySnapshot.exists) {
+    marketSummary = summarySnapshot.data();
+  } else {
+    const summaryRef = db.collection('market').doc('summary');
+    marketSummary = await db.runTransaction(async (transaction) => {
+      const current = await transaction.get(summaryRef);
+      if (current.exists) return current.data();
+      const initialSummary = { updatedAt: new Date().toISOString() };
+      transaction.create(summaryRef, initialSummary);
+      return initialSummary;
+    });
+  }
+
   return {
     stocks,
-    updatedAt: summarySnapshot.exists ? summarySnapshot.data().updatedAt : null,
-    marketSummary: summarySnapshot.exists ? summarySnapshot.data() : {}
+    updatedAt: marketSummary.updatedAt || null,
+    marketSummary
   };
 }
 
@@ -197,7 +238,7 @@ export async function getPortfolioFromDb(discordUserId) {
   const now = new Date().toISOString();
   const snapshot = await userRef.get();
   const user = snapshot.exists ? snapshot.data() : {};
-  const cash = Number.isFinite(Number(user.cash)) ? Number(user.cash) : 100000;
+  const cash = Number.isFinite(Number(user.cash)) ? Number(user.cash) : 0;
   const holdings = user.holdings && typeof user.holdings === 'object' ? user.holdings : {};
 
   if (!snapshot.exists || !Number.isFinite(Number(user.cash)) || !user.holdings) {
@@ -233,6 +274,34 @@ export async function getPortfolioFromDb(discordUserId) {
   };
 }
 
+export async function addCashToDb({ discordUserId, discordUsername, amount }) {
+  const cashToAdd = Number(amount);
+  if (!Number.isFinite(cashToAdd) || cashToAdd <= 0 || cashToAdd > 1000000000) {
+    throw new Error('Cash increment must be greater than 0 and no more than 1,000,000,000.');
+  }
+
+  const db = getFirestoreDb();
+  const userRef = db.collection('users').doc(discordUserId);
+  const now = new Date().toISOString();
+  return db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(userRef);
+    const user = snapshot.exists ? snapshot.data() : {};
+    const currentCash = Number.isFinite(Number(user.cash)) ? Number(user.cash) : 0;
+    const updatedCash = Number((currentCash + cashToAdd).toFixed(2));
+
+    transaction.set(userRef, {
+      discordUserId,
+      ...(discordUsername ? { discordUsername } : {}),
+      cash: updatedCash,
+      holdings: user.holdings && typeof user.holdings === 'object' ? user.holdings : {},
+      createdAt: user.createdAt || now,
+      updatedAt: now
+    }, { merge: true });
+
+    return { discordUserId, previousCash: currentCash, added: cashToAdd, cash: updatedCash };
+  });
+}
+
 export async function placeTradeInDb({ discordUserId, symbol, action, quantity }) {
   const normalizedSymbol = String(symbol || '').trim().toUpperCase();
   const sharesToTrade = Number(quantity);
@@ -250,14 +319,24 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       transaction.get(stockRef)
     ]);
 
-    if (!stockSnapshot.exists) return { ok: false, message: 'Stock not found in Firebase.' };
-    const stock = stockSnapshot.data();
+    const stock = stockSnapshot.exists
+      ? stockSnapshot.data()
+      : buildDefaultStock(normalizedSymbol, now);
     const price = Number(stock.price);
     if (!Number.isFinite(price) || price <= 0) return { ok: false, message: 'Stock has no valid Firebase price.' };
 
     const user = userSnapshot.exists ? userSnapshot.data() : {};
-    const cash = Number.isFinite(Number(user.cash)) ? Number(user.cash) : 100000;
+    const cash = Number.isFinite(Number(user.cash)) ? Number(user.cash) : 0;
     const holdings = user.holdings && typeof user.holdings === 'object' ? { ...user.holdings } : {};
+    if (!userSnapshot.exists || !Number.isFinite(Number(user.cash)) || !user.holdings) {
+      transaction.set(userRef, {
+        discordUserId,
+        cash,
+        holdings,
+        createdAt: user.createdAt || now,
+        updatedAt: now
+      }, { merge: true });
+    }
     const ownedShares = Number(holdings[normalizedSymbol]) || 0;
     const total = Number((price * sharesToTrade).toFixed(2));
 
@@ -278,7 +357,10 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       createdAt: user.createdAt || now,
       updatedAt: now
     }, { merge: true });
-    transaction.set(stockRef, buildPriceUpdate(stock, updatedPrice, now), { merge: true });
+    transaction.set(stockRef, {
+      ...stock,
+      ...buildPriceUpdate(stock, updatedPrice, now)
+    }, { merge: true });
 
     return { ok: true, action, symbol: normalizedSymbol, quantity: sharesToTrade, price, updatedPrice, total, cash: updatedCash };
   });

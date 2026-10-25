@@ -31,6 +31,7 @@ Then open the local Vercel URL.
 - `POST /api/add-stock` accepts `{ "company": "Example Company" }`, generates a unique symbol, and defaults `price`, `marketCap`, and `value` to `0.01`.
 - `GET /api/portfolio` reads the signed-in user's cash and holdings from `users/{discordUserId}`. It requires the Discord login cookie.
 - `POST /api/trade` buys or sells shares using the Firebase quote, transactionally updates cash/holdings, and moves the stock price in the trade direction. It requires the Discord login cookie and accepts `{ "symbol": "AAPL", "action": "buy", "quantity": 3 }`.
+- `POST /api/cash` increments the signed-in user's cash balance by a positive `amount`, up to `$1,000,000,000` per request. It requires the Discord login cookie and accepts `{ "amount": 500 }`.
 - The dashboard reads quotes at startup and every 15 seconds, and refreshes a signed-in portfolio every 30 seconds. Use the “Tick market” button to send the POST that advances prices.
 
 ## Firebase setup
@@ -46,7 +47,9 @@ Firestore data layout:
 
 - `stocks/{SYMBOL}` — quote document with `symbol`, `company`, `price`, and optionally `change`, `volume`, `marketCap`, `dayRange`, `yearRange`, `history`, and `updatedAt`.
 - `market/summary` — optional index summary fields such as `dow`, `dowDelta`, `nasdaq`, `nasdaqDelta`, `sp`, `spDelta`, `sentiment`, and `sentimentText`.
-- `users/{discordUserId}` — Discord profile plus `cash` and `holdings`. New users start with `$100,000` cash.
+- `users/{discordUserId}` — Discord profile plus `cash` and `holdings`. New users start with `$0` cash.
+
+This code uses Cloud Firestore, not Firebase Realtime Database. Missing user documents are initialized by the portfolio lookup, and the missing `market/summary` document is created on the first market read. A missing valid ticker lookup or trade creates `stocks/{SYMBOL}` with the symbol as its company name and `$0.01` defaults for price, market cap, and value.
 
 Market ticks and trades update quote documents in Firestore, but the app does not fetch live exchange prices. Populate `stocks` using Firebase Console, `POST /api/add-stock`, or a server-side integration with a market-data provider. Keep any provider key in server environment variables, not in `index.html` or `script.js`. The market endpoint returns `503` when Firebase is not configured or the `stocks` collection has no valid quote documents; it does not fall back to in-memory state.
 
