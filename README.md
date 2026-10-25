@@ -7,11 +7,12 @@ A stock-market dashboard designed for Vercel.
 - `index.html` — dashboard UI
 - `styles.css` — market-dashboard styling
 - `script.js` — fetches market data and sends buy/sell requests
-- `api/market-updater.js` — returns or advances simulated prices
-- `api/trade.js` — executes authenticated simulated trades
+- `api/market-updater.js` — reads quotes or advances the Firebase-backed market on POST
+- `api/add-stock.js` — adds a stock with a company name
+- `api/trade.js` — executes authenticated Firebase-backed trades
 - `api/portfolio.js` — returns the signed-in user's portfolio
 - `api/auth/session.js` — returns the signed-in Discord profile
-- `api/lib/market.js` — shared market engine and portfolio logic
+- `api/lib/stock-db.js` — Firebase quote and portfolio storage
 - `vercel.json` — includes the cron schedule for live updates
 
 ## Local development
@@ -25,24 +26,30 @@ Then open the local Vercel URL.
 
 ## API workflow
 
-- `GET /api/market-updater` returns the current market snapshot.
-- `POST /api/market-updater` advances the simulated market by one tick.
-- `GET /api/portfolio` returns the current user's cash and holdings. It requires the Discord login cookie.
-- `POST /api/trade` buys or sells simulated shares. It requires the Discord login cookie and accepts `{ "symbol": "AAPL", "action": "buy", "quantity": 3 }`.
-- The dashboard reads the snapshot at startup, advances prices every 15 seconds, and refreshes a signed-in portfolio every 30 seconds.
+- `GET /api/market-updater` reads quotes from Firestore collection `stocks`.
+- `POST /api/market-updater` advances every valid Firebase stock price by one market tick and updates its history. GET never advances prices.
+- `POST /api/add-stock` accepts `{ "company": "Example Company" }`, generates a unique symbol, and defaults `price`, `marketCap`, and `value` to `0.01`.
+- `GET /api/portfolio` reads the signed-in user's cash and holdings from `users/{discordUserId}`. It requires the Discord login cookie.
+- `POST /api/trade` buys or sells shares using the Firebase quote, transactionally updates cash/holdings, and moves the stock price in the trade direction. It requires the Discord login cookie and accepts `{ "symbol": "AAPL", "action": "buy", "quantity": 3 }`.
+- The dashboard reads quotes at startup and every 15 seconds, and refreshes a signed-in portfolio every 30 seconds. Use the “Tick market” button to send the POST that advances prices.
 
-The current quote source is a simulator in `api/lib/market.js`; it does not receive exchange prices. Market and portfolio state is stored in server memory, so it can reset or diverge between serverless invocations. Discord profiles are upserted to Firebase, but simulated holdings and trades are not yet persisted there.
+## Firebase setup
 
-## Connecting real market data
+Configure these server-side environment variables in Vercel (and locally for `vercel dev`):
 
-To use actual quotes, connect a market-data provider (for example, Finnhub, Twelve Data, or Polygon) from a server API route:
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY` (preserve newlines or use `\\n` escapes)
+- `FIREBASE_DATABASE_URL` is optional for the current Firestore implementation.
 
-1. Choose a provider and confirm its plan permits your intended display, refresh rate, and user count.
-2. Add its API key to the Vercel project as an environment variable. Do not put the key in `index.html` or `script.js`.
-3. Replace the simulated quote generation in `api/lib/market.js` with a server-side fetch in `api/market-updater.js`. Normalize the provider response into the existing stock fields: `symbol`, `price`, `change`, `volume`, `dayRange`, `yearRange`, `history`, and `updatedAt`.
-4. Persist normalized quotes and user portfolios/trades in Firebase (using the Admin SDK from API routes), rather than relying on `globalThis` memory.
-5. Have the browser continue reading only your own `/api/market-updater` endpoint. Add a scheduled updater or provider streaming service if quotes must update when no browser is open.
+Firestore data layout:
 
-The current buy/sell endpoints only simulate trades. Real-money orders require a broker API, explicit user authorization, and additional security and compliance work; a quote-data API alone cannot execute them.
+- `stocks/{SYMBOL}` — quote document with `symbol`, `company`, `price`, and optionally `change`, `volume`, `marketCap`, `dayRange`, `yearRange`, `history`, and `updatedAt`.
+- `market/summary` — optional index summary fields such as `dow`, `dowDelta`, `nasdaq`, `nasdaqDelta`, `sp`, `spDelta`, `sentiment`, and `sentimentText`.
+- `users/{discordUserId}` — Discord profile plus `cash` and `holdings`. New users start with `$100,000` cash.
 
-Treat the simulator as a development demo, not as investment data or a brokerage service.
+Market ticks and trades update quote documents in Firestore, but the app does not fetch live exchange prices. Populate `stocks` using Firebase Console, `POST /api/add-stock`, or a server-side integration with a market-data provider. Keep any provider key in server environment variables, not in `index.html` or `script.js`. The market endpoint returns `503` when Firebase is not configured or the `stocks` collection has no valid quote documents; it does not fall back to in-memory state.
+
+Trades are simulated portfolio transactions only. Real-money orders require a broker API, explicit user authorization, and additional security and compliance work; a quote-data API alone cannot execute them.
+
+The app requires Firebase configuration and seeded quote documents to display market data or make trades.

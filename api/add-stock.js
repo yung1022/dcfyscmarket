@@ -1,4 +1,4 @@
-import { saveStockToDb } from './lib/stock-db.js';
+import { createStockForCompany } from './lib/stock-db.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -7,36 +7,36 @@ export default async function handler(req, res) {
 
   try {
     const payload = req.body || {};
-    const symbol = String(payload.symbol || '').trim().toUpperCase();
     const company = String(payload.company || '').trim();
-    const price = Number(payload.price ?? 0);
+    const price = Number(payload.price ?? 0.01);
+    const marketCap = Number(payload.marketCap ?? 0.01);
+    const value = Number(payload.value ?? payload.marketValue ?? 0.01);
 
-    if (!symbol || !company || !Number.isFinite(price) || price <= 0) {
+    if (!company || !Number.isFinite(price) || price <= 0 || !Number.isFinite(marketCap) || marketCap < 0 || !Number.isFinite(value) || value < 0) {
       return res.status(400).json({
         ok: false,
-        message: 'Invalid payload. Expected { symbol, company, price, change, volume, marketCap, dayRange, yearRange, history }'
+        message: 'Provide a company name and valid optional price, marketCap, and value.'
       });
     }
 
     const stock = {
-      symbol,
       company,
       price: Number(price.toFixed(2)),
-      change: Number(payload.change ?? 0),
-      volume: payload.volume || 'N/A',
-      marketCap: payload.marketCap || 'N/A',
-      dayRange: payload.dayRange || 'N/A',
-      yearRange: payload.yearRange || 'N/A',
-      history: Array.isArray(payload.history) ? payload.history.map(Number) : [price],
-      updatedAt: new Date().toISOString()
+      change: 0,
+      volume: payload.volume || '0',
+      marketCap: Number(marketCap.toFixed(2)),
+      value: Number(value.toFixed(2)),
+      dayRange: `${price.toFixed(2)} - ${price.toFixed(2)}`,
+      yearRange: `${price.toFixed(2)} - ${price.toFixed(2)}`,
+      history: [Number(price.toFixed(2))]
     };
 
-    const result = await saveStockToDb(symbol, stock);
+    const result = await createStockForCompany(company, stock);
 
     return res.status(200).json({
       ok: true,
       message: 'Stock saved successfully.',
-      symbol,
+      symbol: result.data.symbol,
       data: result
     });
   } catch (error) {

@@ -18,7 +18,15 @@ const elements = {
   cashBalance: document.getElementById('cashBalance'),
   portfolioValue: document.getElementById('portfolioValue'),
   positionsList: document.getElementById('positionsList'),
-  marketStatusText: document.getElementById('marketStatusText')
+  marketStatusText: document.getElementById('marketStatusText'),
+  marketTickButton: document.getElementById('marketTickButton'),
+  addStockButton: document.getElementById('addStockButton'),
+  addStockDialog: document.getElementById('addStockDialog'),
+  addStockForm: document.getElementById('addStockForm'),
+  stockCompany: document.getElementById('stockCompany'),
+  addStockStatus: document.getElementById('addStockStatus'),
+  submitAddStockButton: document.getElementById('submitAddStockButton'),
+  closeAddStockButton: document.getElementById('closeAddStockButton')
 };
 
 let stocks = [];
@@ -192,11 +200,41 @@ async function loadMarket(advance = false) {
     renderWatchlist();
     renderMarketTable();
     renderSelectedStock();
-    elements.marketStatusText.textContent = 'Simulator API connected';
+    elements.marketStatusText.textContent = 'Firebase market data';
   } catch (error) {
     elements.marketStatusText.textContent = 'Market API unavailable';
     elements.tradeStatus.textContent = error.message;
   }
+}
+
+async function addStock(event) {
+  event.preventDefault();
+  const company = elements.stockCompany.value.trim();
+  if (!company) return;
+
+  elements.submitAddStockButton.disabled = true;
+  elements.addStockStatus.textContent = 'Adding stock...';
+  try {
+    const result = await requestJson('/api/add-stock', {
+      method: 'POST',
+      body: JSON.stringify({ company })
+    });
+    elements.addStockStatus.textContent = `${result.data.data.company} added as ${result.symbol}.`;
+    elements.addStockForm.reset();
+    await loadMarket();
+    elements.addStockDialog.close();
+  } catch (error) {
+    elements.addStockStatus.textContent = error.message;
+  } finally {
+    elements.submitAddStockButton.disabled = false;
+  }
+}
+
+async function triggerMarketTick() {
+  elements.marketTickButton.disabled = true;
+  elements.marketStatusText.textContent = 'Updating market...';
+  await loadMarket(true);
+  elements.marketTickButton.disabled = false;
 }
 
 async function loadPortfolio() {
@@ -254,7 +292,7 @@ async function submitTrade(action) {
       body: JSON.stringify({ symbol: selectedSymbol, action, quantity })
     });
     elements.tradeStatus.textContent = `${action === 'buy' ? 'Bought' : 'Sold'} ${quantity} ${selectedSymbol} at ${formatMoney(result.price)}.`;
-    await loadPortfolio();
+    await Promise.all([loadPortfolio(), loadMarket()]);
   } catch (error) {
     elements.tradeStatus.textContent = error.message;
     setTradeControls(true);
@@ -263,10 +301,18 @@ async function submitTrade(action) {
 
 elements.buyBtn.addEventListener('click', () => submitTrade('buy'));
 elements.sellBtn.addEventListener('click', () => submitTrade('sell'));
+elements.marketTickButton.addEventListener('click', triggerMarketTick);
+elements.addStockButton.addEventListener('click', () => {
+  elements.addStockStatus.textContent = '';
+  elements.addStockDialog.showModal();
+  elements.stockCompany.focus();
+});
+elements.closeAddStockButton.addEventListener('click', () => elements.addStockDialog.close());
+elements.addStockForm.addEventListener('submit', addStock);
 window.addEventListener('discord-session-ready', () => loadPortfolio());
 
 setTradeControls(false);
 loadMarket();
 loadPortfolio();
-window.setInterval(() => loadMarket(true), 15000);
+window.setInterval(loadMarket, 15000);
 window.setInterval(loadPortfolio, 30000);

@@ -22,6 +22,7 @@
 
         <div class="topbar-actions">
           <button id="loginButton" class="login-button" type="button">Login with Discord</button>
+          <button id="marketTickButton" class="ghost-button" type="button">Tick market</button>
           <div class="market-status">
             <span class="status-dot"></span>
             <span id="marketStatusText">Loading market</span>
@@ -56,7 +57,7 @@
         <aside class="watchlist panel">
           <div class="panel-header">
             <h2>Watchlist</h2>
-            <button class="ghost-button">+ Add</button>
+            <button id="addStockButton" class="ghost-button" type="button">+ Add</button>
           </div>
           <ul id="stockList" class="stock-list"></ul>
         </aside>
@@ -161,6 +162,20 @@
         </section>
       </main>
     </div>
+
+    <dialog id="addStockDialog" class="stock-dialog">
+      <form id="addStockForm" class="stock-dialog-form">
+        <div class="panel-header">
+          <h2>Add stock</h2>
+          <button id="closeAddStockButton" class="ghost-button" type="button" aria-label="Close">Close</button>
+        </div>
+        <label for="stockCompany">Company name</label>
+        <input id="stockCompany" name="company" type="text" maxlength="100" autocomplete="organization" required />
+        <p class="stock-defaults">Initial price, market cap, and value: $0.01</p>
+        <div id="addStockStatus" class="trade-status" aria-live="polite"></div>
+        <button id="submitAddStockButton" class="trade-button buy" type="submit">Add stock</button>
+      </form>
+    </dialog>
 
     <script>
       const loginButton = document.getElementById('loginButton');
