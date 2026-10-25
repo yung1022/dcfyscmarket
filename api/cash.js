@@ -1,5 +1,5 @@
 import { getDiscordSession } from './lib/discord-session.js';
-import { addCashToDb } from './lib/stock-db.js';
+import { addCashToDb } from './lib/realtime-db.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {

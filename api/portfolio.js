@@ -1,5 +1,5 @@
 import { getDiscordSession } from './lib/discord-session.js';
-import { getPortfolioFromDb } from './lib/stock-db.js';
+import { getPortfolioFromDb } from './lib/realtime-db.js';
 
 export default async function handler(req, res) {
   try {

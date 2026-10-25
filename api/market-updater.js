@@ -1,4 +1,4 @@
-import { getMarketDataFromDb, tickMarketInDb } from './lib/stock-db.js';
+import { getMarketDataFromDb, tickMarketInDb } from './lib/realtime-db.js';
 
 export default async function handler(req, res) {
   if (!['GET', 'POST'].includes(req.method)) {
@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     if (!snapshot.stocks.length) {
       return res.status(503).json({
         ok: false,
-        message: 'No stock quotes found in Firebase collection "stocks".'
+        message: 'No stock quotes found in Firebase Realtime Database at /stocks.'
       });
     }
 

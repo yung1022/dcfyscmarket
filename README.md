@@ -12,7 +12,7 @@ A stock-market dashboard designed for Vercel.
 - `api/trade.js` — executes authenticated Firebase-backed trades
 - `api/portfolio.js` — returns the signed-in user's portfolio
 - `api/auth/session.js` — returns the signed-in Discord profile
-- `api/lib/stock-db.js` — Firebase quote and portfolio storage
+- `api/lib/realtime-db.js` — Firebase Realtime Database quote and portfolio storage
 - `vercel.json` — includes the cron schedule for live updates
 
 ## Local development
@@ -26,7 +26,7 @@ Then open the local Vercel URL.
 
 ## API workflow
 
-- `GET /api/market-updater` reads quotes from Firestore collection `stocks`.
+- `GET /api/market-updater` reads quotes from Realtime Database path `/stocks`.
 - `POST /api/market-updater` advances every valid Firebase stock price by one market tick and updates its history. GET never advances prices.
 - `POST /api/add-stock` accepts `{ "company": "Example Company" }`, generates a unique symbol, and defaults `price`, `marketCap`, and `value` to `0.01`.
 - `GET /api/portfolio` reads the signed-in user's cash and holdings from `users/{discordUserId}`. It requires the Discord login cookie.
@@ -41,17 +41,17 @@ Configure these server-side environment variables in Vercel (and locally for `ve
 - `FIREBASE_PROJECT_ID`
 - `FIREBASE_CLIENT_EMAIL`
 - `FIREBASE_PRIVATE_KEY` (preserve newlines or use `\\n` escapes)
-- `FIREBASE_DATABASE_URL` is optional for the current Firestore implementation.
+- `FIREBASE_DATABASE_URL` is required and must be the URL shown for your Firebase Realtime Database.
 
-Firestore data layout:
+Realtime Database data layout:
 
-- `stocks/{SYMBOL}` — quote document with `symbol`, `company`, `price`, and optionally `change`, `volume`, `marketCap`, `dayRange`, `yearRange`, `history`, and `updatedAt`.
-- `market/summary` — optional index summary fields such as `dow`, `dowDelta`, `nasdaq`, `nasdaqDelta`, `sp`, `spDelta`, `sentiment`, and `sentimentText`.
-- `users/{discordUserId}` — Discord profile plus `cash` and `holdings`. New users start with `$0` cash.
+- `/stocks/{SYMBOL}` — quote object with `symbol`, `company`, `price`, `change`, `volume`, `marketCap`, `dayRange`, `yearRange`, `history`, and `updatedAt`.
+- `/market/summary` — index summary fields such as `dow`, `dowDelta`, `nasdaq`, `nasdaqDelta`, `sp`, `spDelta`, `sentiment`, and `sentimentText`.
+- `/users/{discordUserId}` — Discord profile plus `cash` and `holdings`. New users start with `$0` cash.
 
-This code uses Cloud Firestore, not Firebase Realtime Database. Missing user documents are initialized by the portfolio lookup, and the missing `market/summary` document is created on the first market read. A missing valid ticker lookup or trade creates `stocks/{SYMBOL}` with the symbol as its company name and `$0.01` defaults for price, market cap, and value.
+All server-side Firebase operations use Realtime Database; Firestore is not used. Missing user records are initialized by the portfolio lookup, the missing `/market/summary` node is created on the first market read, and a missing valid ticker lookup or trade creates `/stocks/{SYMBOL}` with the symbol as its company name and `$0.01` defaults for price, market cap, and value.
 
-Market ticks and trades update quote documents in Firestore, but the app does not fetch live exchange prices. Populate `stocks` using Firebase Console, `POST /api/add-stock`, or a server-side integration with a market-data provider. Keep any provider key in server environment variables, not in `index.html` or `script.js`. The market endpoint returns `503` when Firebase is not configured or the `stocks` collection has no valid quote documents; it does not fall back to in-memory state.
+Market ticks and trades update quote objects in Realtime Database, but the app does not fetch live exchange prices. Populate `/stocks` using Firebase Console, `POST /api/add-stock`, or a server-side integration with a market-data provider. Keep any provider key in server environment variables, not in `index.html` or `script.js`. The market endpoint returns `503` when Realtime Database is not configured or `/stocks` has no valid quote objects; it does not fall back to in-memory state.
 
 Trades are simulated portfolio transactions only. Real-money orders require a broker API, explicit user authorization, and additional security and compliance work; a quote-data API alone cannot execute them.
 
