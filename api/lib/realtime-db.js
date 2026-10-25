@@ -39,14 +39,14 @@ function defaultStock(symbol, updatedAt = new Date().toISOString()) {
   return {
     symbol,
     company: symbol,
-    price: 0.01,
+    price: 0.0001,
     change: 0,
     volume: '0',
-    marketCap: 0.01,
-    value: 0.01,
-    dayRange: '0.01 - 0.01',
-    yearRange: '0.01 - 0.01',
-    history: [0.01],
+    marketCap: 0.0001,
+    value: 0.0001,
+    dayRange: '0.0001 - 0.0001',
+    yearRange: '0.0001 - 0.0001',
+    history: [0.0001],
     createdAt: updatedAt,
     updatedAt
   };
@@ -67,7 +67,7 @@ function buildPriceUpdate(stock, nextPrice, updatedAt) {
     price: nextPrice,
     change: previous > 0 ? Number((((nextPrice - previous) / previous) * 100).toFixed(2)) : 0,
     history,
-    dayRange: `${Math.min(...recent).toFixed(2)} - ${Math.max(...recent).toFixed(2)}`,
+    dayRange: `${Math.min(...recent).toFixed(4)} - ${Math.max(...recent).toFixed(4)}`,
     updatedAt
   };
 
@@ -75,7 +75,7 @@ function buildPriceUpdate(stock, nextPrice, updatedAt) {
     const ratio = nextPrice / previousPrice;
     for (const field of ['marketCap', 'value']) {
       const existingValue = Number(stock[field]);
-      if (Number.isFinite(existingValue)) update[field] = Number((existingValue * ratio).toFixed(2));
+      if (Number.isFinite(existingValue)) update[field] = Number((existingValue * ratio).toFixed(4));
     }
   }
 
@@ -226,8 +226,8 @@ export async function tickMarketInDb() {
 
     const direction = Math.random() < 0.5 ? -1 : 1;
     const percent = 0.001 + Math.random() * 0.009;
-    const movement = Math.max(0.01, Number((currentPrice * percent).toFixed(2)));
-    const nextPrice = Number(Math.max(0.01, currentPrice + direction * movement).toFixed(2));
+    const movement = Math.max(0.0001, Number((currentPrice * percent).toFixed(4)));
+    const nextPrice = Number(Math.max(0.0001, currentPrice + direction * movement).toFixed(4));
     updates[`stocks/${symbol}`] = { ...stock, ...buildPriceUpdate(stock, nextPrice, updatedAt) };
   });
 
@@ -245,7 +245,8 @@ export async function getPortfolioFromDb(discordUserId) {
   const stocksSnapshot = await getRealtimeDb().ref('stocks').once('value');
   const stocksValue = stocksSnapshot.val();
   const stocks = isRecord(stocksValue) ? stocksValue : {};
-  const positions = Object.entries(user.holdings).map(([symbol, rawShares]) => {
+  const holdings = isRecord(user.holdings) ? user.holdings : {};
+  const positions = Object.entries(holdings).map(([symbol, rawShares]) => {
     const shares = Number(rawShares) || 0;
     const stock = stocks[symbol];
     const price = Number(stock?.price) || 0;
@@ -253,15 +254,16 @@ export async function getPortfolioFromDb(discordUserId) {
       symbol,
       shares,
       price,
-      value: Number((shares * price).toFixed(2)),
+      value: Number((shares * price).toFixed(4)),
       change: Number(stock?.change) || 0
     };
   });
 
+  const cash = Number.isFinite(Number(user.cash)) ? Number(user.cash) : 0;
   return {
     userId: discordUserId,
-    cash: Number(user.cash.toFixed(2)),
-    portfolioValue: Number((user.cash + positions.reduce((sum, position) => sum + position.value, 0)).toFixed(2)),
+    cash: Number(cash.toFixed(4)),
+    portfolioValue: Number((cash + positions.reduce((sum, position) => sum + position.value, 0)).toFixed(4)),
     holdings: positions,
     updatedAt: user.updatedAt
   };
@@ -323,7 +325,7 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
     const cash = Number.isFinite(Number(user.cash)) ? Number(user.cash) : 0;
     const holdings = isRecord(user.holdings) ? { ...user.holdings } : {};
     const ownedShares = Number(holdings[normalizedSymbol]) || 0;
-    const total = Number((price * sharesToTrade).toFixed(2));
+    const total = Number((price * sharesToTrade).toFixed(4));
 
     if (!Number.isFinite(price) || price <= 0) {
       failure = 'Stock has no valid Realtime Database price.';
@@ -338,11 +340,11 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       return;
     }
 
-    const updatedCash = Number((cash + (action === 'buy' ? -total : total)).toFixed(2));
+    const updatedCash = Number((cash + (action === 'buy' ? -total : total)).toFixed(4));
     const updatedShares = ownedShares + (action === 'buy' ? sharesToTrade : -sharesToTrade);
     const impactRate = Math.min(0.05, sharesToTrade * 0.001);
-    const movement = Math.max(0.01, Number((price * impactRate).toFixed(2)));
-    const updatedPrice = Number(Math.max(0.01, price + (action === 'buy' ? movement : -movement)).toFixed(2));
+    const movement = Math.max(0.0001, Number((price * impactRate).toFixed(4)));
+    const updatedPrice = Number(Math.max(0.0001, price + (action === 'buy' ? movement : -movement)).toFixed(4));
     if (updatedShares > 0) holdings[normalizedSymbol] = updatedShares;
     else delete holdings[normalizedSymbol];
 

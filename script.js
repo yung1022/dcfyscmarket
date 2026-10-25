@@ -20,13 +20,6 @@ const elements = {
   positionsList: document.getElementById('positionsList'),
   marketStatusText: document.getElementById('marketStatusText'),
   marketTickButton: document.getElementById('marketTickButton'),
-  addStockButton: document.getElementById('addStockButton'),
-  addStockDialog: document.getElementById('addStockDialog'),
-  addStockForm: document.getElementById('addStockForm'),
-  stockCompany: document.getElementById('stockCompany'),
-  addStockStatus: document.getElementById('addStockStatus'),
-  submitAddStockButton: document.getElementById('submitAddStockButton'),
-  closeAddStockButton: document.getElementById('closeAddStockButton')
 };
 
 let stocks = [];
@@ -56,7 +49,9 @@ async function requestJson(url, options = {}) {
 function formatMoney(value) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD'
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4
   }).format(Number(value) || 0);
 }
 
@@ -207,29 +202,6 @@ async function loadMarket(advance = false) {
   }
 }
 
-async function addStock(event) {
-  event.preventDefault();
-  const company = elements.stockCompany.value.trim();
-  if (!company) return;
-
-  elements.submitAddStockButton.disabled = true;
-  elements.addStockStatus.textContent = 'Adding stock...';
-  try {
-    const result = await requestJson('/api/add-stock', {
-      method: 'POST',
-      body: JSON.stringify({ company })
-    });
-    elements.addStockStatus.textContent = `${result.data.data.company} added as ${result.symbol}.`;
-    elements.addStockForm.reset();
-    await loadMarket();
-    elements.addStockDialog.close();
-  } catch (error) {
-    elements.addStockStatus.textContent = error.message;
-  } finally {
-    elements.submitAddStockButton.disabled = false;
-  }
-}
-
 async function triggerMarketTick() {
   elements.marketTickButton.disabled = true;
   elements.marketStatusText.textContent = 'Updating market...';
@@ -302,13 +274,6 @@ async function submitTrade(action) {
 elements.buyBtn.addEventListener('click', () => submitTrade('buy'));
 elements.sellBtn.addEventListener('click', () => submitTrade('sell'));
 elements.marketTickButton.addEventListener('click', triggerMarketTick);
-elements.addStockButton.addEventListener('click', () => {
-  elements.addStockStatus.textContent = '';
-  elements.addStockDialog.showModal();
-  elements.stockCompany.focus();
-});
-elements.closeAddStockButton.addEventListener('click', () => elements.addStockDialog.close());
-elements.addStockForm.addEventListener('submit', addStock);
 window.addEventListener('discord-session-ready', () => loadPortfolio());
 
 setTradeControls(false);
