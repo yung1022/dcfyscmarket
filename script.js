@@ -199,8 +199,9 @@ function renderPriceChart(history) {
   });
   const line = points.map((point, index) => `${index ? 'L' : 'M'} ${point}`).join(' ');
   const area = `${line} L 760,240 L 0,240 Z`;
+  const exactPrice = values[values.length - 1];
 
-  elements.priceChart.innerHTML = `<defs><linearGradient id="lineGradient" x1="0" x2="1"><stop offset="0%" stop-color="#25c98a"/><stop offset="100%" stop-color="#66e0b0"/></linearGradient><linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#25c98a" stop-opacity=".26"/><stop offset="100%" stop-color="#25c98a" stop-opacity="0"/></linearGradient></defs><path class="chart-area" d="${area}"/><path class="chart-line" d="${line}"/>`;
+  elements.priceChart.innerHTML = `<defs><linearGradient id="lineGradient" x1="0" x2="1"><stop offset="0%" stop-color="#25c98a"/><stop offset="100%" stop-color="#66e0b0"/></linearGradient><linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#25c98a" stop-opacity=".26"/><stop offset="100%" stop-color="#25c98a" stop-opacity="0"/></linearGradient></defs><path class="chart-area" d="${area}"/><path class="chart-line" d="${line}"/><text x="12" y="24" fill="#eaf4ff" font-size="16" font-weight="700">$${exactPrice}</text>`;
 }
 
 function renderMiniCharts(stock) {

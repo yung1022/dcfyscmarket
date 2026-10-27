@@ -8,9 +8,9 @@ export default async function handler(req, res) {
   try {
     const payload = req.body || {};
     const company = String(payload.company || '').trim();
-    const price = Number(payload.price ?? 0.0001);
-    const marketCap = Number(payload.marketCap ?? 0.0001);
-    const value = Number(payload.value ?? payload.marketValue ?? 0.0001);
+    const price = Number(payload.price ?? 0.01);
+    const marketCap = Number(payload.marketCap ?? 0.01);
+    const value = Number(payload.value ?? payload.marketValue ?? 0.01);
 
     if (!company || !Number.isFinite(price) || price <= 0 || !Number.isFinite(marketCap) || marketCap < 0 || !Number.isFinite(value) || value < 0) {
       return res.status(400).json({
