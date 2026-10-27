@@ -25,6 +25,14 @@ const elements = {
 let stocks = [];
 let selectedSymbol = '';
 let isLoggedIn = false;
+let activeInterval = 'history';
+
+const INTERVAL_SERIES = {
+  history: 'history',
+  history10: 'history10',
+  history50: 'history50',
+  history100: 'history100'
+};
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, {
@@ -156,14 +164,29 @@ function renderSelectedStock() {
   elements.stockVolume.textContent = stock.volume || '--';
   elements.marketCap.textContent = stock.marketCap || '--';
   elements.yearRange.textContent = stock.yearRange || '--';
-  renderPriceChart(stock.history || []);
+  renderActivity(stock);
+  renderPriceChart(stock[INTERVAL_SERIES[activeInterval]] || stock.history || []);
+  renderMiniCharts(stock);
+}
+
+function renderActivity(stock) {
+  const activity = Number(stock.stockActivity) || 0;
+  const percent = (activity + 1) / 2 * 100; // -1..1 mapped to 0..100%
+  const bar = document.getElementById('activityBar');
+  const value = document.getElementById('activityValue');
+  if (!bar || !value) return;
+
+  bar.style.left = `${Math.min(percent, 99).toFixed(2)}%`;
+  bar.style.width = '2px';
+  bar.style.background = activity >= 0 ? '#25c98a' : '#ff6b81';
+  value.textContent = activity.toFixed(4);
+  value.className = `activity-value ${activity >= 0 ? 'positive' : 'negative'}`;
 }
 
 function renderPriceChart(history) {
-  const values = history.map(Number).filter(Number.isFinite);
+  const values = (history || []).map(Number).filter(Number.isFinite);
   if (!values.length) {
-    elements.priceChart.replaceChildren();
-    return;
+    values.push(0, 0);
   }
 
   const minimum = Math.min(...values);
@@ -178,6 +201,35 @@ function renderPriceChart(history) {
   const area = `${line} L 760,240 L 0,240 Z`;
 
   elements.priceChart.innerHTML = `<defs><linearGradient id="lineGradient" x1="0" x2="1"><stop offset="0%" stop-color="#25c98a"/><stop offset="100%" stop-color="#66e0b0"/></linearGradient><linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#25c98a" stop-opacity=".26"/><stop offset="100%" stop-color="#25c98a" stop-opacity="0"/></linearGradient></defs><path class="chart-area" d="${area}"/><path class="chart-line" d="${line}"/>`;
+}
+
+function renderMiniCharts(stock) {
+  const map = [
+    ['miniChart10', stock.history10],
+    ['miniChart50', stock.history50],
+    ['miniChart100', stock.history100]
+  ];
+
+  map.forEach(([id, series]) => {
+    const chart = document.getElementById(id);
+    if (!chart) return;
+    const values = (series || []).map(Number).filter(Number.isFinite);
+    if (values.length < 2) {
+      chart.innerHTML = '<path class="chart-line" d=""/>';
+      return;
+    }
+
+    const minimum = Math.min(...values);
+    const maximum = Math.max(...values);
+    const range = maximum - minimum || 1;
+    const points = values.map((value, index) => {
+      const x = (index / (values.length - 1)) * 760;
+      const y = 220 - ((value - minimum) / range) * 200;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    const line = points.map((point, index) => `${index ? 'L' : 'M'} ${point}`).join(' ');
+    chart.innerHTML = `<path class="chart-line" d="${line}"/>`;
+  });
 }
 
 async function loadMarket() {
@@ -270,6 +322,18 @@ async function submitTrade(action) {
 elements.buyBtn.addEventListener('click', () => submitTrade('buy'));
 elements.sellBtn.addEventListener('click', () => submitTrade('sell'));
 elements.marketTickButton.addEventListener('click', triggerRefresh);
+
+// Interval tab switching: which sampled series feeds the main chart.
+document.getElementById('chartTabs').addEventListener('click', (event) => {
+  const button = event.target.closest('.chart-tab');
+  if (!button) return;
+  activeInterval = button.dataset.interval || 'history';
+  document.querySelectorAll('.chart-tab').forEach((tab) => {
+    tab.classList.toggle('active', tab === button);
+  });
+  const stock = stocks.find((item) => item.symbol === selectedSymbol);
+  if (stock) renderSelectedStock();
+});
 window.addEventListener('discord-session-ready', () => loadPortfolio());
 
 setTradeControls(false);

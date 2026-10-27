@@ -74,7 +74,38 @@
             </div>
           </div>
 
+          <div class="chart-tabs" id="chartTabs" role="tablist">
+            <button class="chart-tab active" type="button" data-interval="history">Every tick</button>
+            <button class="chart-tab" type="button" data-interval="history10">Every 10</button>
+            <button class="chart-tab" type="button" data-interval="history50">Every 50</button>
+            <button class="chart-tab" type="button" data-interval="history100">Every 100</button>
+          </div>
+
           <svg id="priceChart" viewBox="0 0 760 240" preserveAspectRatio="none"></svg>
+
+          <div class="activity-row">
+            <span class="activity-label">Stock Activity</span>
+            <div class="activity-meter">
+              <div id="activityBar" class="activity-bar"></div>
+              <div class="activity-mid"></div>
+            </div>
+            <strong id="activityValue" class="activity-value">--</strong>
+          </div>
+
+          <div class="mini-charts">
+            <div class="mini-chart-box">
+              <span class="mini-chart-label">10-tick</span>
+              <svg id="miniChart10" viewBox="0 0 760 240" preserveAspectRatio="none"></svg>
+            </div>
+            <div class="mini-chart-box">
+              <span class="mini-chart-label">50-tick</span>
+              <svg id="miniChart50" viewBox="0 0 760 240" preserveAspectRatio="none"></svg>
+            </div>
+            <div class="mini-chart-box">
+              <span class="mini-chart-label">100-tick</span>
+              <svg id="miniChart100" viewBox="0 0 760 240" preserveAspectRatio="none"></svg>
+            </div>
+          </div>
 
           <div class="stats-grid">
             <div class="stat-box">

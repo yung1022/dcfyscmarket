@@ -69,6 +69,86 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+const ACTIVITY_MIN = -1;
+const ACTIVITY_MAX = 1;
+
+function normalizeActivity(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? clamp(numeric, ACTIVITY_MIN, ACTIVITY_MAX) : 0;
+}
+
+// Tick history sampling: charts at 1, 10, 50 and 100 tick intervals.
+const HISTORY_CAP = 200;
+const SAMPLE_INTERVALS = [
+  { key: 'history', every: 1, cap: HISTORY_CAP },
+  { key: 'history10', every: 10, cap: 120 },
+  { key: 'history50', every: 50, cap: 120 },
+  { key: 'history100', every: 100, cap: 120 }
+];
+
+function initializeTickData(stock) {
+  const base = Array.isArray(stock.history)
+    ? stock.history.map(Number).filter(Number.isFinite)
+    : [];
+  if (!base.length && Number.isFinite(Number(stock.price))) base.push(Number(stock.price));
+  const tickCount = Number.isFinite(Number(stock.tickCount)) ? Number(stock.tickCount) : Math.max(0, base.length - 1);
+
+  const result = { history: base, tickCount, sampled: {} };
+  for (const { key } of SAMPLE_INTERVALS.slice(1)) {
+    result.sampled[key] = Array.isArray(stock[key])
+      ? stock[key].map(Number).filter(Number.isFinite)
+      : [];
+  }
+  return result;
+}
+
+function buildHistoryUpdate(stock, nextPrice) {
+  const previousPrice = Number(stock.price) || 0;
+  const tickData = initializeTickData(stock);
+  const tickCount = tickData.tickCount + 1;
+
+  const update = { price: nextPrice, tickCount };
+
+  for (const { key, every, cap } of SAMPLE_INTERVALS) {
+    const series = key === 'history' ? tickData.history : tickData.sampled[key];
+    const shouldRecord = every === 1 || tickCount % every === 0 || tickCount === 1;
+    if (!shouldRecord) {
+      if (key !== 'history') update[key] = series.slice(-cap);
+      continue;
+    }
+    const next = [...series, nextPrice];
+    if (next.length > cap) next.splice(0, next.length - cap);
+    update[key] = next.map((value) => Number(value.toFixed(4)));
+  }
+
+  const history = update.history;
+  const previous = history.length > 1 ? history[history.length - 2] : nextPrice;
+  update.change = previous > 0 ? Number((((nextPrice - previous) / previous) * 100).toFixed(2)) : 0;
+
+  const recent = history.slice(-12);
+  update.dayRange = `${Math.min(...recent).toFixed(4)} - ${Math.max(...recent).toFixed(4)}`;
+
+  if (previousPrice > 0) {
+    const ratio = nextPrice / previousPrice;
+    for (const field of ['marketCap', 'value']) {
+      const existingValue = Number(stock[field]);
+      if (Number.isFinite(existingValue)) update[field] = Number((existingValue * ratio).toFixed(4));
+    }
+  }
+
+  return update;
+}
+
+function computeTickPrice(stock) {
+  const activity = normalizeActivity(stock.stockActivity);
+  const drift = Number.isFinite(Number(stock.trend)) ? Number(stock.trend) : 0;
+  const volatility = Number.isFinite(Number(stock.volatility)) ? Number(stock.volatility) : 0.012;
+  const noise = randomBetween(-volatility, volatility);
+  const influence = clamp(Math.abs(activity) * 0.02, 0, 0.2);
+  const direction = activity >= 0 ? 1 : -1;
+  return clamp(stock.price * (1 + drift + noise + direction * influence), 0.0001, 10000);
+}
+
 function ensureState() {
   if (!globalThis.__dcfyscmarketState) {
     globalThis.__dcfyscmarketState = {
@@ -101,8 +181,12 @@ export function getMarketSnapshot() {
       marketCap: stock.marketCap,
       yearRange: stock.yearRange,
       dayRange: stock.dayRange,
+      stockActivity: Number(normalizeActivity(stock.stockActivity).toFixed(6)),
       sentiment: stock.price >= previous ? 'Bullish' : 'Bearish',
       history: stock.history,
+      history10: stock.history10 || [],
+      history50: stock.history50 || [],
+      history100: stock.history100 || [],
       updatedAt: state.lastUpdated
     };
   });
@@ -127,20 +211,19 @@ export function tickMarket() {
   const state = ensureState();
 
   Object.values(state.stocks).forEach((stock) => {
-    const drift = stock.trend;
-    const noise = randomBetween(-stock.volatility, stock.volatility);
-    const nextPrice = clamp(stock.price * (1 + drift + noise), 10, 10000);
+    // Activity decays by 5-15% each tick, and drives the price direction.
+    const decayRate = randomBetween(0.05, 0.15);
+    const nextPrice = computeTickPrice(stock);
 
-    stock.price = Number(nextPrice.toFixed(2));
-    stock.history.push(stock.price);
+    stock.price = Number(nextPrice.toFixed(4));
+    stock.stockActivity = normalizeActivity(stock.stockActivity) * (1 - decayRate);
 
-    if (stock.history.length > 50) {
-      stock.history.shift();
+    const updates = buildHistoryUpdate(stock, stock.price);
+    Object.assign(stock, updates);
+
+    if (typeof stock.stockActivity !== 'number') {
+      stock.stockActivity = 0;
     }
-
-    const dayLow = Math.min(...stock.history.slice(-12));
-    const dayHigh = Math.max(...stock.history.slice(-12));
-    stock.dayRange = `${dayLow.toFixed(2)} - ${dayHigh.toFixed(2)}`;
   });
 
   state.lastUpdated = new Date().toISOString();
@@ -234,6 +317,10 @@ export function placeTrade({ userId = 'demo', symbol, action, quantity }) {
       delete user.holdings[symbol];
     }
   }
+
+  // Trades move activity, not the price directly.
+  const impact = clamp(safeQty * 0.001, 0, 0.05) * (action === 'buy' ? 1 : -1);
+  stock.stockActivity = normalizeActivity((stock.stockActivity || 0) + impact);
 
   state.lastUpdated = new Date().toISOString();
 

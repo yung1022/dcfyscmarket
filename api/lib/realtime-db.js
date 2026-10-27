@@ -47,29 +47,80 @@ function defaultStock(symbol, updatedAt = new Date().toISOString()) {
     dayRange: '0.0001 - 0.0001',
     yearRange: '0.0001 - 0.0001',
     history: [0.0001],
+    tickCount: 0,
+    stockActivity: 0,
     createdAt: updatedAt,
     updatedAt
   };
 }
 
-function buildPriceUpdate(stock, nextPrice, updatedAt) {
-  const previousPrice = Number(stock.price) || 0;
-  const history = (Array.isArray(stock.history) ? stock.history : [])
-    .map(Number)
-    .filter(Number.isFinite);
-  if (!history.length && previousPrice > 0) history.push(previousPrice);
-  history.push(nextPrice);
-  if (history.length > 50) history.shift();
+// Trade activity is stored on the stock (range roughly -1 .. 1) and drives the
+// price direction. Positive activity pushes the price up, negative pushes it down.
+const ACTIVITY_MIN = -1;
+const ACTIVITY_MAX = 1;
 
-  const previous = history.length > 1 ? history[history.length - 2] : nextPrice;
-  const recent = history.slice(-12);
+function normalizeActivity(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? clamp(numeric, ACTIVITY_MIN, ACTIVITY_MAX) : 0;
+}
+
+const HISTORY_CAP = 200;
+const SAMPLE_INTERVALS = [
+  { key: 'history', every: 1, cap: 200 },
+  { key: 'history10', every: 10, cap: 120 },
+  { key: 'history50', every: 50, cap: 120 },
+  { key: 'history100', every: 100, cap: 120 }
+];
+
+function initializeTickData(stock) {
+  const base = Array.isArray(stock.history)
+    ? stock.history.map(Number).filter(Number.isFinite)
+    : [];
+  if (!base.length && Number.isFinite(Number(stock.price))) base.push(Number(stock.price));
+  const tickCount = Number.isFinite(Number(stock.tickCount)) ? Number(stock.tickCount) : Math.max(0, base.length - 1);
+
+  const result = { history: base, tickCount, sampled: {} };
+  for (const { key } of SAMPLE_INTERVALS.slice(1)) {
+    let series = Array.isArray(stock[key]) ? stock[key].map(Number).filter(Number.isFinite) : [];
+    if (!series.length) {
+      // Backfill from the tick history when the interval series is missing.
+      series = base.filter((_, index) => (tickCount - (base.length - 1 - index)) % 1 === 0 && index === base.length - 1);
+    }
+    result.sampled[key] = series;
+  }
+  return result;
+}
+
+function buildHistoryUpdate(stock, nextPrice, updatedAt) {
+  const previousPrice = Number(stock.price) || 0;
+  const tickData = initializeTickData(stock);
+  const tickCount = tickData.tickCount + 1;
+
   const update = {
     price: nextPrice,
-    change: previous > 0 ? Number((((nextPrice - previous) / previous) * 100).toFixed(2)) : 0,
-    history,
-    dayRange: `${Math.min(...recent).toFixed(4)} - ${Math.max(...recent).toFixed(4)}`,
+    tickCount,
     updatedAt
   };
+
+  for (const { key, every, cap } of SAMPLE_INTERVALS) {
+    const series = key === 'history' ? tickData.history : tickData.sampled[key];
+    // Record a point on this interval only when the tick counter hits a multiple.
+    const shouldRecord = every === 1 || tickCount % every === 0 || tickCount === 1;
+    if (!shouldRecord) {
+      if (key !== 'history') update[key] = series.slice(-cap);
+      continue;
+    }
+    const next = [...series, nextPrice];
+    if (next.length > cap) next.splice(0, next.length - cap);
+    update[key] = next.map((value) => Number(value.toFixed(4)));
+  }
+
+  const history = update.history;
+  const previous = history.length > 1 ? history[history.length - 2] : nextPrice;
+  update.change = previous > 0 ? Number((((nextPrice - previous) / previous) * 100).toFixed(2)) : 0;
+
+  const recent = history.slice(-12);
+  update.dayRange = `${Math.min(...recent).toFixed(4)} - ${Math.max(...recent).toFixed(4)}`;
 
   if (previousPrice > 0) {
     const ratio = nextPrice / previousPrice;
@@ -214,6 +265,17 @@ export async function getMarketDataFromDb() {
   };
 }
 
+function computeTickPrice(stock) {
+  const activity = normalizeActivity(stock.stockActivity);
+  const drift = Number.isFinite(Number(stock.trend)) ? Number(stock.trend) : 0;
+  const volatility = Number.isFinite(Number(stock.volatility)) ? Number(stock.volatility) : 0.006;
+  const noise = randomBetween(-volatility, volatility);
+  const tickCount = Number.isFinite(Number(stock.tickCount)) ? Number(stock.tickCount) : 0;
+  const influence = clamp(Math.abs(activity) * 0.02, 0, 0.2);
+  const direction = activity >= 0 ? 1 : -1;
+  return clamp(stock.price * (1 + drift + noise + direction * influence), 0.0001, 10000);
+}
+
 export async function tickMarketInDb() {
   const db = getRealtimeDb();
   const stocksRef = db.ref('stocks');
@@ -238,11 +300,15 @@ export async function tickMarketInDb() {
     const currentPrice = Number(stock.price);
     if (!Number.isFinite(currentPrice) || currentPrice <= 0) return;
 
-    const direction = Math.random() < 0.5 ? -1 : 1;
-    const percent = 0.001 + Math.random() * 0.009;
-    const movement = Math.max(0.0001, Number((currentPrice * percent).toFixed(4)));
-    const nextPrice = Number(Math.max(0.0001, currentPrice + direction * movement).toFixed(4));
-    updates[`stocks/${symbol}`] = { ...stock, ...buildPriceUpdate(stock, nextPrice, updatedAt) };
+    // Every tick, activity decays by 5-15% toward zero.
+    const decayRate = randomBetween(0.05, 0.15);
+    const nextPrice = computeTickPrice(stock);
+    const decayedActivity = normalizeActivity(stock.stockActivity) * (1 - decayRate);
+    updates[`stocks/${symbol}`] = {
+      ...stock,
+      ...buildHistoryUpdate(stock, nextPrice, updatedAt),
+      stockActivity: Number(clamp(decayedActivity, ACTIVITY_MIN, ACTIVITY_MAX).toFixed(6))
+    };
   });
 
   if (!Object.keys(updates).length) {
@@ -362,9 +428,15 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
 
     const updatedCash = Number((cash + (action === 'buy' ? -total : total)).toFixed(4));
     const updatedShares = ownedShares + (action === 'buy' ? sharesToTrade : -sharesToTrade);
-    const impactRate = Math.min(0.05, sharesToTrade * 0.001);
-    const movement = Math.max(0.0001, Number((price * impactRate).toFixed(4)));
-    const updatedPrice = Number(Math.max(0.0001, price + (action === 'buy' ? movement : -movement)).toFixed(4));
+    // Trades shift the stock's activity value instead of the price. Price reacts
+    // on subsequent ticks as activity decays.
+    const impactRate = Math.min(0.25, sharesToTrade * 0.001);
+    const currentActivity = normalizeActivity(stock.stockActivity);
+    const updatedActivity = clamp(
+      currentActivity + (action === 'buy' ? impactRate : -impactRate),
+      ACTIVITY_MIN,
+      ACTIVITY_MAX
+    );
     if (updatedShares > 0) holdings[normalizedSymbol] = updatedShares;
     else delete holdings[normalizedSymbol];
 
@@ -378,7 +450,8 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
     };
     stocks[normalizedSymbol] = {
       ...stock,
-      ...buildPriceUpdate(stock, updatedPrice, now)
+      stockActivity: Number(updatedActivity.toFixed(6)),
+      updatedAt: now
     };
     tradeResult = {
       ok: true,
@@ -386,7 +459,7 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       symbol: normalizedSymbol,
       quantity: sharesToTrade,
       price,
-      updatedPrice,
+      stockActivity: Number(updatedActivity.toFixed(6)),
       total,
       cash: updatedCash
     };

@@ -28,7 +28,12 @@ export default async function handler(req, res) {
       value: Number(value.toFixed(4)),
       dayRange: `${price.toFixed(4)} - ${price.toFixed(4)}`,
       yearRange: `${price.toFixed(4)} - ${price.toFixed(4)}`,
-      history: [Number(price.toFixed(4))]
+      history: [Number(price.toFixed(4))],
+      history10: [Number(price.toFixed(4))],
+      history50: [Number(price.toFixed(4))],
+      history100: [Number(price.toFixed(4))],
+      tickCount: 0,
+      stockActivity: 0
     };
 
     const result = await createStockForCompany(company, stock);

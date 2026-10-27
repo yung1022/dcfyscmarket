@@ -371,6 +371,120 @@ button:disabled {
   fill: url(#areaGradient);
 }
 
+.chart-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.chart-tab {
+  background: rgba(21, 35, 48, 0.8);
+  border: 1px solid rgba(127, 163, 194, 0.2);
+  color: #9db4cb;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chart-tab.active {
+  background: rgba(37, 201, 138, 0.16);
+  border-color: rgba(37, 201, 138, 0.5);
+  color: #66e0b0;
+}
+
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.activity-label {
+  color: #8da8c3;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.activity-meter {
+  position: relative;
+  flex: 1;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(21, 35, 48, 0.9);
+  border: 1px solid rgba(127, 163, 194, 0.2);
+  overflow: hidden;
+}
+
+.activity-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, #ff6b81, #25c98a);
+  transition: all 0.3s ease;
+}
+
+.activity-mid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  background: rgba(200, 220, 240, 0.35);
+}
+
+.activity-value {
+  min-width: 64px;
+  text-align: right;
+  font-size: 0.9rem;
+}
+
+.activity-value.positive { color: #69f0b5; }
+.activity-value.negative { color: #ff8ba0; }
+
+.mini-charts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.mini-chart-box {
+  background: rgba(21, 35, 48, 0.6);
+  border: 1px solid rgba(127, 163, 194, 0.14);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.mini-chart-label {
+  display: block;
+  color: #8da8c3;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.mini-chart-box svg {
+  width: 100%;
+  height: 90px;
+  display: block;
+}
+
+.mini-chart-box .chart-line {
+  stroke-width: 2;
+}
+
+@media (max-width: 720px) {
+  .mini-charts {
+    grid-template-columns: 1fr;
+  }
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(120px, 1fr));
