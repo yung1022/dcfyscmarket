@@ -59,6 +59,14 @@ function defaultStock(symbol, updatedAt = new Date().toISOString()) {
 const ACTIVITY_MIN = -1;
 const ACTIVITY_MAX = 1;
 
+function randomBetween(min, max) {
+  return Math.random() * (max - min) + min;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
 function normalizeActivity(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? clamp(numeric, ACTIVITY_MIN, ACTIVITY_MAX) : 0;
