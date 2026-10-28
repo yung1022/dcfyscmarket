@@ -95,6 +95,10 @@ function parseMarketCap(value) {
 // The stock's activity is the mean-reverting state, and the stock's
 // volatility is the diffusion (shock) term. One tick = one time step.
 const OU_MEAN_REVERSION = 0.12; // theta: pull back toward the long-run mean
+// Nonlinear reversion: pumped/dumped activity (|A| near 1) reverts much faster
+// than quiet activity, so a channel cannot be held at an extreme by repeated
+// trades. Effective theta = OU_MEAN_REVERSION * (1 + OU_PUMP_REVERSION * A^2).
+const OU_PUMP_REVERSION = 4;
 const OU_LONG_RUN_MEAN = 0;     // mu: activity reverts to neutral
 const OU_DT = 1;                // time step per tick
 // stock.volatility is a *price* volatility (~0.006-0.022 per tick). The OU state
@@ -109,9 +113,23 @@ function ouStep(activity, volatility) {
   // step and normalizeActivity would snap the activity back to 0 every tick.
   const rawVolatility = Number(volatility);
   const sigma = clamp(Number.isFinite(rawVolatility) ? rawVolatility : 0.006, 0.0001, 1) * OU_VOLATILITY_SCALE;
-  const drift = OU_MEAN_REVERSION * (OU_LONG_RUN_MEAN - activity) * OU_DT;
+  // Strengthen reversion when the state is far from the mean so repeated buys
+  // or sells cannot pin the activity (and therefore the price drift) at a peak.
+  const theta = OU_MEAN_REVERSION * (1 + OU_PUMP_REVERSION * activity * activity);
+  const drift = theta * (OU_LONG_RUN_MEAN - activity) * OU_DT;
   const diffusion = sigma * Math.sqrt(OU_DT) * gaussianNoise();
   return normalizeActivity(activity + drift + diffusion);
+}
+
+// Trade impact for a single order: the bigger the order relative to the
+// stock's liquidity depth, the harder it moves the price — and the trade
+// executes AT the impacted price, so the pumper pays for the pump.
+function computeTradeImpact(stock, sharesToTrade) {
+  const price = Number(stock.price) || 0;
+  const marketCap = parseMarketCap(stock.marketCap) || price * 1e6;
+  // Liquidity depth: 0.05% of market cap worth of shares absorbs a 10% move.
+  const liquidityShares = Math.max(marketCap / Math.max(price, 0.0001) * 0.0005, 1000);
+  return clamp(sharesToTrade / liquidityShares * 0.1, 0, 0.1);
 }
 
 const HISTORY_CAP = 200;
@@ -342,8 +360,10 @@ function computeTickPrice(stock) {
   const volatility = Number.isFinite(Number(stock.volatility)) ? Number(stock.volatility) : 0.006;
   // Stock activity is the volatility: price shocks scale with |activity|.
   const noise = gaussianNoise() * volatility * (0.25 + Math.abs(activity));
-  const tickCount = Number.isFinite(Number(stock.tickCount)) ? Number(stock.tickCount) : 0;
-  const influence = clamp(Math.abs(activity) * 0.02, 0, 0.2);
+  // Activity-driven drift is capped well below the noise band so persistent
+  // one-sided trading gives an edge at most comparable to volatility, and the
+  // OU reversion (which accelerates at high |activity|) erases it quickly.
+  const influence = clamp(Math.abs(activity) * 0.02, 0, 0.02);
   const direction = activity >= 0 ? 1 : -1;
   return clamp(stock.price * (1 + drift + noise + direction * influence), 0.0001, 10000);
 }
@@ -371,6 +391,10 @@ export async function tickMarketInDb() {
     const stock = { ...stockValue, symbol: stockValue.symbol || symbol };
     const currentPrice = Number(stock.price);
     if (!Number.isFinite(currentPrice) || currentPrice <= 0) return;
+
+    // Trade impact and settlement happen in placeTradeInDb: orders execute at
+    // the post-impact price, so pump-and-dump round trips always cost more in
+    // slippage than they gain in drift.
 
     // Ornstein-Uhlenbeck tick: activity mean-reverts and is shocked by the
     // stock's volatility, then drives the price direction and magnitude.
@@ -490,12 +514,22 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
     const cash = Number.isFinite(Number(user.cash)) ? Number(user.cash) : 0;
     const holdings = isRecord(user.holdings) ? { ...user.holdings } : {};
     const ownedShares = Number(holdings[normalizedSymbol]) || 0;
-    const total = Number((price * sharesToTrade).toFixed(4));
 
     if (!Number.isFinite(price) || price <= 0) {
       failure = 'Stock has no valid Realtime Database price.';
       return;
     }
+
+    // The order executes at the POST-impact price: a buy fills above the mid,
+    // a sell fills below it, so the trader pays for the price move their own
+    // order causes. This removes the buy-low/tick-up/sell-high pump loop.
+    const impactRate = computeTradeImpact(stock, sharesToTrade);
+    const executionPrice = Number((action === 'buy'
+      ? price * (1 + impactRate)
+      : price * (1 - impactRate)
+    ).toFixed(4));
+    const total = Number((executionPrice * sharesToTrade).toFixed(4));
+
     if (action === 'buy' && cash < total) {
       failure = 'Not enough cash to buy these shares.';
       return;
@@ -507,9 +541,8 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
 
     const updatedCash = Number((cash + (action === 'buy' ? -total : total)).toFixed(4));
     const updatedShares = ownedShares + (action === 'buy' ? sharesToTrade : -sharesToTrade);
-    // Trades shift the stock's activity value instead of the price. Price reacts
-    // on subsequent ticks as activity decays.
-    const impactRate = Math.min(0.25, sharesToTrade * 0.001);
+    // Trades shift the stock's activity value AND settle at the impacted
+    // price. Activity then decays through the accelerated OU reversion.
     const currentActivity = normalizeActivity(stock.stockActivity);
     const updatedActivity = clamp(
       currentActivity + (action === 'buy' ? impactRate : -impactRate),
@@ -529,6 +562,7 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
     };
     stocks[normalizedSymbol] = {
       ...stock,
+      price: executionPrice,
       stockActivity: Number(updatedActivity.toFixed(6)),
       updatedAt: now
     };
@@ -538,6 +572,8 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       symbol: normalizedSymbol,
       quantity: sharesToTrade,
       price,
+      executionPrice,
+      impact: Number(impactRate.toFixed(6)),
       stockActivity: Number(updatedActivity.toFixed(6)),
       total,
       cash: updatedCash
