@@ -69,6 +69,59 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+// Standard normal sample (Box-Muller) for the OU diffusion term.
+function gaussianNoise() {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+// Ornstein-Uhlenbeck process: dA = theta * (mu - A) dt + sigma dW.
+// The stock's activity is the mean-reverting state, and the stock's
+// volatility is the diffusion (shock) term. One tick = one time step.
+const OU_MEAN_REVERSION = 0.12; // theta: pull back toward the long-run mean
+const OU_LONG_RUN_MEAN = 0;     // mu: activity reverts to neutral
+const OU_DT = 1;                // time step per tick
+
+function ouStep(activity, volatility) {
+  const sigma = clamp(Number(volatility), 0.0001, 1) ;
+  const drift = OU_MEAN_REVERSION * (OU_LONG_RUN_MEAN - activity) * OU_DT;
+  const diffusion = sigma * Math.sqrt(OU_DT) * gaussianNoise();
+  return normalizeActivity(activity + drift + diffusion);
+}
+
+// Estimate share volume traded this tick: scales with price movement and
+// absolute activity, with a baseline churn so quiet stocks still trade.
+function computeTickVolume(stock, nextPrice) {
+  const previousPrice = Number(stock.price) || nextPrice;
+  const volatility = Number.isFinite(Number(stock.volatility)) ? Number(stock.volatility) : 0.012;
+  const activity = Math.abs(normalizeActivity(stock.stockActivity));
+  const priceMove = previousPrice > 0 ? Math.abs(nextPrice - previousPrice) / previousPrice : 0;
+  const baselineShares = clamp((Number(stock.marketCapNumber) || parseMarketCap(stock.marketCap) || 0) / Math.max(nextPrice, 0.0001) * 0.0002, 100, 50000000);
+  const shares = baselineShares * (1 + priceMove / Math.max(volatility, 0.0001) * 0.5 + activity * 3 + randomBetween(0, 0.25));
+  return Math.round(clamp(shares, 0, 1e12));
+}
+
+// Parse market cap strings like "3.2T", "786B", "52.1M" or plain numbers.
+function parseMarketCap(value) {
+  if (Number.isFinite(Number(value))) return Number(value);
+  const match = String(value).match(/^([0-9.]+)\s*([KMBT])?$/i);
+  if (!match) return 0;
+  const multiplier = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[(match[2] || '').toUpperCase()] || 1;
+  return Number(match[1]) * multiplier;
+}
+
+function formatVolume(shares) {
+  const value = Number(shares) || 0;
+  if (value >= 1e12) return `${(value / 1e12).toFixed(2)}T`;
+  if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
+  if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
+  if (value >= 1e3) return `${(value / 1e3).toFixed(2)}K`;
+  return String(Math.round(value));
+}
+
 const ACTIVITY_MIN = -1;
 const ACTIVITY_MAX = 1;
 
@@ -143,7 +196,8 @@ function computeTickPrice(stock) {
   const activity = normalizeActivity(stock.stockActivity);
   const drift = Number.isFinite(Number(stock.trend)) ? Number(stock.trend) : 0;
   const volatility = Number.isFinite(Number(stock.volatility)) ? Number(stock.volatility) : 0.012;
-  const noise = randomBetween(-volatility, volatility);
+  // Stock activity is the volatility: price shocks scale with |activity|.
+  const noise = gaussianNoise() * volatility * (0.25 + Math.abs(activity));
   const influence = clamp(Math.abs(activity) * 0.02, 0, 0.2);
   const direction = activity >= 0 ? 1 : -1;
   return clamp(stock.price * (1 + drift + noise + direction * influence), 0.0001, 10000);
@@ -211,12 +265,19 @@ export function tickMarket() {
   const state = ensureState();
 
   Object.values(state.stocks).forEach((stock) => {
-    // Activity decays by 5-15% each tick, and drives the price direction.
-    const decayRate = randomBetween(0.05, 0.15);
+    // Ornstein-Uhlenbeck tick: activity mean-reverts and is shocked by the
+    // stock's volatility, then drives the price direction and magnitude.
     const nextPrice = computeTickPrice(stock);
 
     stock.price = Number(nextPrice.toFixed(4));
-    stock.stockActivity = normalizeActivity(stock.stockActivity) * (1 - decayRate);
+    stock.stockActivity = ouStep(normalizeActivity(stock.stockActivity), stock.volatility);
+
+    // Accumulate traded volume; seed the raw share count from the label once.
+    if (!Number.isFinite(Number(stock.volumeShares))) {
+      stock.volumeShares = parseMarketCap(stock.volume) || parseMarketCap(stock.volumeShares);
+    }
+    stock.volumeShares = Math.round(Number(stock.volumeShares) + computeTickVolume(stock, stock.price));
+    stock.volume = formatVolume(stock.volumeShares);
 
     const updates = buildHistoryUpdate(stock, stock.price);
     Object.assign(stock, updates);

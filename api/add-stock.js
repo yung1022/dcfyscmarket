@@ -1,5 +1,14 @@
 import { createStockForCompany } from './lib/realtime-db.js';
 
+function formatVolume(shares) {
+  const value = Number(shares) || 0;
+  if (value >= 1e12) return `${(value / 1e12).toFixed(2)}T`;
+  if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
+  if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
+  if (value >= 1e3) return `${(value / 1e3).toFixed(2)}K`;
+  return String(Math.round(value));
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ ok: false, message: 'Only POST is allowed.' });
@@ -23,7 +32,8 @@ export default async function handler(req, res) {
       company,
       price: Number(price.toFixed(4)),
       change: 0,
-      volume: payload.volume || '0',
+      volume: payload.volume || formatVolume(Math.round(marketCap / price * randomBetween(0.001, 0.01))),
+      volumeShares: Number(payload.volumeShares) || Math.round(marketCap / price * randomBetween(0.001, 0.01)),
       marketCap: Number(marketCap.toFixed(4)),
       value: Number(value.toFixed(4)),
       dayRange: `${price.toFixed(4)} - ${price.toFixed(4)}`,
