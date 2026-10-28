@@ -104,7 +104,11 @@ const OU_DT = 1;                // time step per tick
 const OU_VOLATILITY_SCALE = 25; // maps price volatility onto activity units
 
 function ouStep(activity, volatility) {
-  const sigma = clamp(Number(volatility), 0.0001, 1) * OU_VOLATILITY_SCALE;
+  // Stocks added via /api/add-stock have no `volatility` field; fall back to the
+  // same default computeTickPrice uses, otherwise NaN would poison the whole
+  // step and normalizeActivity would snap the activity back to 0 every tick.
+  const rawVolatility = Number(volatility);
+  const sigma = clamp(Number.isFinite(rawVolatility) ? rawVolatility : 0.006, 0.0001, 1) * OU_VOLATILITY_SCALE;
   const drift = OU_MEAN_REVERSION * (OU_LONG_RUN_MEAN - activity) * OU_DT;
   const diffusion = sigma * Math.sqrt(OU_DT) * gaussianNoise();
   return normalizeActivity(activity + drift + diffusion);
