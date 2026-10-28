@@ -97,9 +97,14 @@ function parseMarketCap(value) {
 const OU_MEAN_REVERSION = 0.12; // theta: pull back toward the long-run mean
 const OU_LONG_RUN_MEAN = 0;     // mu: activity reverts to neutral
 const OU_DT = 1;                // time step per tick
+// stock.volatility is a *price* volatility (~0.006-0.022 per tick). The OU state
+// (activity) lives on a -1..1 scale, so the diffusion term must be rescaled into
+// activity units; using the raw price volatility left sigma ~0.012, which with
+// theta=0.12 pins the activity at ~0 every tick.
+const OU_VOLATILITY_SCALE = 25; // maps price volatility onto activity units
 
 function ouStep(activity, volatility) {
-  const sigma = clamp(Number(volatility), 0.0001, 1);
+  const sigma = clamp(Number(volatility), 0.0001, 1) * OU_VOLATILITY_SCALE;
   const drift = OU_MEAN_REVERSION * (OU_LONG_RUN_MEAN - activity) * OU_DT;
   const diffusion = sigma * Math.sqrt(OU_DT) * gaussianNoise();
   return normalizeActivity(activity + drift + diffusion);
