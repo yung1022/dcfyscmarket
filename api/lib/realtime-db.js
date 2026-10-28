@@ -121,15 +121,17 @@ function ouStep(activity, volatility) {
   return normalizeActivity(activity + drift + diffusion);
 }
 
-// Trade impact for a single order: the bigger the order relative to the
-// stock's liquidity depth, the harder it moves the price — and the trade
-// executes AT the impacted price, so the pumper pays for the pump.
+// Channel impact for a single order: how much the trade shifts the stock's
+// activity. Proportional to order size relative to the stock's liquidity
+// depth, so whales move the channel more than small orders — and crucially,
+// spamming many small buys moves it far less than one equivalent large order
+// would, because the shift is applied as a geometric blend (see placeTradeInDb).
 function computeTradeImpact(stock, sharesToTrade) {
   const price = Number(stock.price) || 0;
   const marketCap = parseMarketCap(stock.marketCap) || price * 1e6;
-  // Liquidity depth: 0.05% of market cap worth of shares absorbs a 10% move.
+  // Liquidity depth: 0.05% of market cap worth of shares.
   const liquidityShares = Math.max(marketCap / Math.max(price, 0.0001) * 0.0005, 1000);
-  return clamp(sharesToTrade / liquidityShares * 0.1, 0, 0.1);
+  return clamp(sharesToTrade / liquidityShares, 0, 1);
 }
 
 const HISTORY_CAP = 200;
@@ -521,15 +523,9 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       return;
     }
 
-    // The order executes at the POST-impact price: a buy fills above the mid,
-    // a sell fills below it, so the trader pays for the price move their own
-    // order causes. This removes the buy-low/tick-up/sell-high pump loop.
-    const impactRate = computeTradeImpact(stock, sharesToTrade);
-    const executionPrice = Number((action === 'buy'
-      ? price * (1 + impactRate)
-      : price * (1 - impactRate)
-    ).toFixed(4));
-    const total = Number((executionPrice * sharesToTrade).toFixed(4));
+    // Trades settle at the clean mid price — no slippage. Pump resistance
+    // comes from the channel impact below, not from charging traders.
+    const total = Number((price * sharesToTrade).toFixed(4));
 
     if (action === 'buy' && cash < total) {
       failure = 'Not enough cash to buy these shares.';
@@ -542,14 +538,16 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
 
     const updatedCash = Number((cash + (action === 'buy' ? -total : total)).toFixed(4));
     const updatedShares = ownedShares + (action === 'buy' ? sharesToTrade : -sharesToTrade);
-    // Trades shift the stock's activity value AND settle at the impacted
-    // price. Activity then decays through the accelerated OU reversion.
+    // Channel impact: the order blends the activity toward the trade
+    // direction geometrically rather than additively. Spamming small buys
+    // converges toward the channel limit with diminishing returns and can
+    // never overshoot it, while the equivalent single large order would move
+    // the channel by the same amount. The price reacts only through
+    // mean-zero tick volatility, so a pushed channel carries no edge.
     const currentActivity = normalizeActivity(stock.stockActivity);
-    const updatedActivity = clamp(
-      currentActivity + (action === 'buy' ? impactRate : -impactRate),
-      ACTIVITY_MIN,
-      ACTIVITY_MAX
-    );
+    const target = action === 'buy' ? ACTIVITY_MAX : ACTIVITY_MIN;
+    const channelImpact = computeTradeImpact(stock, sharesToTrade);
+    const updatedActivity = currentActivity + (target - currentActivity) * channelImpact;
     if (updatedShares > 0) holdings[normalizedSymbol] = updatedShares;
     else delete holdings[normalizedSymbol];
 
@@ -563,7 +561,6 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
     };
     stocks[normalizedSymbol] = {
       ...stock,
-      price: executionPrice,
       stockActivity: Number(updatedActivity.toFixed(6)),
       updatedAt: now
     };
@@ -573,8 +570,7 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       symbol: normalizedSymbol,
       quantity: sharesToTrade,
       price,
-      executionPrice,
-      impact: Number(impactRate.toFixed(6)),
+      impact: Number(channelImpact.toFixed(6)),
       stockActivity: Number(updatedActivity.toFixed(6)),
       total,
       cash: updatedCash

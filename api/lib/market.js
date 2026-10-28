@@ -108,15 +108,17 @@ function ouStep(activity, volatility) {
   return normalizeActivity(activity + drift + diffusion);
 }
 
-// Trade impact for a single order: the bigger the order relative to the
-// stock's liquidity depth, the harder it moves the price — and the trade
-// executes AT the impacted price, so the pumper pays for the pump.
+// Channel impact for a single order: how much the trade shifts the stock's
+// activity. Proportional to order size relative to the stock's liquidity
+// depth, so whales move the channel more than small orders — and crucially,
+// spamming many small buys moves it far less than one equivalent large order
+// would, because the shift is applied as a geometric blend (see below).
 function computeTradeImpact(stock, sharesToTrade) {
   const price = Number(stock.price) || 0;
   const marketCap = parseMarketCap(stock.marketCap) || price * 1e6;
-  // Liquidity depth: 0.05% of market cap worth of shares absorbs a 10% move.
+  // Liquidity depth: 0.05% of market cap worth of shares.
   const liquidityShares = Math.max(marketCap / Math.max(price, 0.0001) * 0.0005, 1000);
-  return clamp(sharesToTrade / liquidityShares * 0.1, 0, 0.1);
+  return clamp(sharesToTrade / liquidityShares, 0, 1);
 }
 
 // Estimate share volume traded this tick: scales with price movement and
@@ -379,12 +381,10 @@ export function placeTrade({ userId = 'demo', symbol, action, quantity }) {
 
   const price = stock.price;
 
-  // The order executes at the POST-impact price: a buy fills above the mid,
-  // a sell fills below it, so the trader pays for the price move their own
-  // order causes. This removes the buy-low/tick-up/sell-high pump loop.
+  // Trades settle at the clean mid price — no slippage. Pump resistance
+  // comes from the channel impact below, not from charging traders.
   const impact = computeTradeImpact(stock, safeQty);
-  const executionPrice = Number((price * (1 + (action === 'buy' ? impact : -impact))).toFixed(4));
-  const total = Number((executionPrice * safeQty).toFixed(4));
+  const total = Number((price * safeQty).toFixed(4));
 
   if (action === 'buy') {
     if (user.cash < total) {
@@ -416,11 +416,19 @@ export function placeTrade({ userId = 'demo', symbol, action, quantity }) {
     }
   }
 
-  // The executed price (with slippage) becomes the stock's new mid price.
-  stock.price = executionPrice;
-  // Trades shift the stock's activity value; activity then decays through the
-  // accelerated OU reversion on subsequent ticks.
-  stock.stockActivity = normalizeActivity((stock.stockActivity || 0) + (action === 'buy' ? impact : -impact));
+  // The channel impact is applied as a geometric blend toward the trade
+  // direction rather than an additive bump. This is the anti-pump core:
+  // N small orders blend the channel toward ±1 with geometrically
+  // diminishing returns, so spamming buys converges to the channel limit
+  // but can never overshoot it — while one honest large order of the same
+  // total size moves the channel exactly as much as the N orders combined.
+  // The price itself only reacts through tick volatility, which is
+  // mean-zero, so a pushed channel carries no guaranteed profit.
+  const rawActivity = normalizeActivity(stock.stockActivity);
+  const target = action === 'buy' ? ACTIVITY_MAX : ACTIVITY_MIN;
+  // Blend factor: full liquidity-consumed order fully commits toward target.
+  const updatedActivity = rawActivity + (target - rawActivity) * impact;
+  stock.stockActivity = normalizeActivity(updatedActivity);
 
   state.lastUpdated = new Date().toISOString();
 
@@ -430,7 +438,6 @@ export function placeTrade({ userId = 'demo', symbol, action, quantity }) {
     symbol,
     quantity: safeQty,
     price,
-    executionPrice,
     impact: Number(impact.toFixed(6)),
     total,
     cash: Number(user.cash.toFixed(2)),
