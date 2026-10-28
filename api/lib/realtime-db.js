@@ -360,12 +360,13 @@ function computeTickPrice(stock) {
   const volatility = Number.isFinite(Number(stock.volatility)) ? Number(stock.volatility) : 0.006;
   // Stock activity is the volatility: price shocks scale with |activity|.
   const noise = gaussianNoise() * volatility * (0.25 + Math.abs(activity));
-  // Activity-driven drift is capped well below the noise band so persistent
-  // one-sided trading gives an edge at most comparable to volatility, and the
-  // OU reversion (which accelerates at high |activity|) erases it quickly.
-  const influence = clamp(Math.abs(activity) * 0.02, 0, 0.02);
-  const direction = activity >= 0 ? 1 : -1;
-  return clamp(stock.price * (1 + drift + noise + direction * influence), 0.0001, 10000);
+  // Activity scales VOLATILITY only, never a deterministic direction. A
+  // directional drift proportional to activity would be a free option: small
+  // orders pay negligible slippage but still add activity, and the holder
+  // then collects the guaranteed drift on later ticks. Noise is mean-zero,
+  // so the price is a martingale and pump-and-dump round trips can only
+  // lose the slippage paid on entry and exit.
+  return clamp(stock.price * (1 + drift + noise), 0.0001, 10000);
 }
 
 export async function tickMarketInDb() {
