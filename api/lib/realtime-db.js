@@ -122,16 +122,34 @@ function ouStep(activity, volatility) {
 }
 
 // Channel impact for a single order: how much the trade shifts the stock's
-// activity. Proportional to order size relative to the stock's liquidity
-// depth, so whales move the channel more than small orders — and crucially,
-// spamming many small buys moves it far less than one equivalent large order
-// would, because the shift is applied as a geometric blend (see placeTradeInDb).
+// activity AND its price. Proportional to order size relative to the stock's
+// liquidity depth, so whales move the channel more than small orders — and
+// crucially, spamming many small buys moves it far less than one equivalent
+// large order would, because the shift is applied as a geometric blend (see
+// placeTradeInDb).
 function computeTradeImpact(stock, sharesToTrade) {
   const price = Number(stock.price) || 0;
   const marketCap = parseMarketCap(stock.marketCap) || price * 1e6;
   // Liquidity depth: 0.05% of market cap worth of shares.
   const liquidityShares = Math.max(marketCap / Math.max(price, 0.0001) * 0.0005, 1000);
   return clamp(sharesToTrade / liquidityShares, 0, 1);
+}
+
+// Permanent price impact of a trade, as a fraction of the current price.
+// Bounded (IMPACT_PRICE_CAP) so even a full liquidity-consumption order
+// cannot move the price more than a fraction of its value in one go.
+const IMPACT_PRICE_SCALE = 0.08;  // price moves up to ~8% at full liquidity consumption
+const IMPACT_PRICE_CAP = 0.25;
+
+function computeTradePriceImpact(stock, sharesToTrade, channelImpact) {
+  const impact = Number.isFinite(Number(channelImpact))
+    ? Number(channelImpact)
+    : computeTradeImpact(stock, sharesToTrade);
+  // sqrt keeps price impact sublinear in size: splitting one whale order into
+  // many small ones costs MORE total slippage (sum of sqrt chunks > sqrt of
+  // sum), so spammers pay a premium instead of a discount.
+  const priceMove = Math.sqrt(impact) * IMPACT_PRICE_SCALE;
+  return clamp(priceMove, 0, IMPACT_PRICE_CAP);
 }
 
 const HISTORY_CAP = 200;
@@ -362,12 +380,11 @@ function computeTickPrice(stock) {
   const volatility = Number.isFinite(Number(stock.volatility)) ? Number(stock.volatility) : 0.006;
   // Stock activity is the volatility: price shocks scale with |activity|.
   const noise = gaussianNoise() * volatility * (0.25 + Math.abs(activity));
-  // Activity scales VOLATILITY only, never a deterministic direction. A
-  // directional drift proportional to activity would be a free option: small
-  // orders pay negligible slippage but still add activity, and the holder
-  // then collects the guaranteed drift on later ticks. Noise is mean-zero,
-  // so the price is a martingale and pump-and-dump round trips can only
-  // lose the slippage paid on entry and exit.
+  // Activity scales VOLATILITY only, never a deterministic direction. Trades
+  // move the price through the explicit, paid-for impact in placeTradeInDb
+  // (buyers push the price up and pay it; sellers push it down and eat it).
+  // Tick noise stays mean-zero, so a pushed channel decays back rather than
+  // guaranteeing further drift.
   return clamp(stock.price * (1 + drift + noise), 0.0001, 10000);
 }
 
@@ -523,9 +540,16 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       return;
     }
 
-    // Trades settle at the clean mid price — no slippage. Pump resistance
-    // comes from the channel impact below, not from charging traders.
-    const total = Number((price * sharesToTrade).toFixed(4));
+    // Price impact: the trade moves the price permanently (buy up, sell down)
+    // and the order settles at the POST-impact price, so the trader pays the
+    // pump they create and eats the dump they cause. The impact is sublinear
+    // (sqrt) and blended geometrically, so spamming small orders costs more
+    // total slippage than one honest large order of the same size.
+    const channelImpact = computeTradeImpact(stock, sharesToTrade);
+    const priceImpact = computeTradePriceImpact(stock, sharesToTrade, channelImpact);
+    const direction = action === 'buy' ? 1 : -1;
+    const executionPrice = Number((price * (1 + direction * priceImpact)).toFixed(6));
+    const total = Number((executionPrice * sharesToTrade).toFixed(4));
 
     if (action === 'buy' && cash < total) {
       failure = 'Not enough cash to buy these shares.';
@@ -542,11 +566,11 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
     // direction geometrically rather than additively. Spamming small buys
     // converges toward the channel limit with diminishing returns and can
     // never overshoot it, while the equivalent single large order would move
-    // the channel by the same amount. The price reacts only through
-    // mean-zero tick volatility, so a pushed channel carries no edge.
+    // the channel by the same amount. The pushed activity only raises tick
+    // volatility, which is mean-zero, so it carries no edge beyond the
+    // impact already paid at execution.
     const currentActivity = normalizeActivity(stock.stockActivity);
     const target = action === 'buy' ? ACTIVITY_MAX : ACTIVITY_MIN;
-    const channelImpact = computeTradeImpact(stock, sharesToTrade);
     const updatedActivity = currentActivity + (target - currentActivity) * channelImpact;
     if (updatedShares > 0) holdings[normalizedSymbol] = updatedShares;
     else delete holdings[normalizedSymbol];
@@ -561,6 +585,7 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
     };
     stocks[normalizedSymbol] = {
       ...stock,
+      price: executionPrice,
       stockActivity: Number(updatedActivity.toFixed(6)),
       updatedAt: now
     };
@@ -569,7 +594,9 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       action,
       symbol: normalizedSymbol,
       quantity: sharesToTrade,
-      price,
+      price: executionPrice,
+      preTradePrice: price,
+      priceImpact: Number(priceImpact.toFixed(6)),
       impact: Number(channelImpact.toFixed(6)),
       stockActivity: Number(updatedActivity.toFixed(6)),
       total,

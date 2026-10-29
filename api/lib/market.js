@@ -121,6 +121,17 @@ function computeTradeImpact(stock, sharesToTrade) {
   return clamp(sharesToTrade / liquidityShares, 0, 1);
 }
 
+// Permanent price impact of a trade, as a fraction of the current price.
+// Sublinear in size (sqrt) and bounded, so splitting one whale order into
+// many small ones costs MORE total slippage — spammers pay a premium.
+const IMPACT_PRICE_SCALE = 0.08;
+const IMPACT_PRICE_CAP = 0.25;
+
+function computeTradePriceImpact(channelImpact) {
+  const impact = Number.isFinite(Number(channelImpact)) ? Number(channelImpact) : 0;
+  return clamp(Math.sqrt(impact) * IMPACT_PRICE_SCALE, 0, IMPACT_PRICE_CAP);
+}
+
 // Estimate share volume traded this tick: scales with price movement and
 // absolute activity, with a baseline churn so quiet stocks still trade.
 function computeTickVolume(stock, nextPrice) {
@@ -227,12 +238,11 @@ function computeTickPrice(stock) {
   const volatility = Number.isFinite(Number(stock.volatility)) ? Number(stock.volatility) : 0.012;
   // Stock activity is the volatility: price shocks scale with |activity|.
   const noise = gaussianNoise() * volatility * (0.25 + Math.abs(activity));
-  // Activity scales VOLATILITY only, never a deterministic direction. A
-  // directional drift proportional to activity would be a free option: small
-  // orders pay negligible slippage but still add activity, and the holder
-  // then collects the guaranteed drift on later ticks. Noise is mean-zero,
-  // so the price is a martingale and pump-and-dump round trips can only
-  // lose the slippage paid on entry and exit.
+  // Activity scales VOLATILITY only, never a deterministic direction. Trades
+  // move the price through the explicit, paid-for impact in placeTrade
+  // (buyers push the price up and pay it; sellers push it down and eat it).
+  // Tick noise stays mean-zero, so a pushed channel decays back rather than
+  // guaranteeing further drift.
   return clamp(stock.price * (1 + drift + noise), 0.0001, 10000);
 }
 
@@ -381,10 +391,14 @@ export function placeTrade({ userId = 'demo', symbol, action, quantity }) {
 
   const price = stock.price;
 
-  // Trades settle at the clean mid price — no slippage. Pump resistance
-  // comes from the channel impact below, not from charging traders.
+  // Trades settle at the POST-impact price: buyers pay the pump they create,
+  // sellers eat the dump they cause. The impact is sublinear (sqrt) and the
+  // channel shift is geometrically blended, so spamming small orders costs
+  // more total slippage than one honest large order of the same size.
   const impact = computeTradeImpact(stock, safeQty);
-  const total = Number((price * safeQty).toFixed(4));
+  const priceImpact = computeTradePriceImpact(impact);
+  const executionPrice = Number((price * (1 + (action === 'buy' ? 1 : -1) * priceImpact)).toFixed(6));
+  const total = Number((executionPrice * safeQty).toFixed(4));
 
   if (action === 'buy') {
     if (user.cash < total) {
@@ -422,13 +436,15 @@ export function placeTrade({ userId = 'demo', symbol, action, quantity }) {
   // diminishing returns, so spamming buys converges to the channel limit
   // but can never overshoot it — while one honest large order of the same
   // total size moves the channel exactly as much as the N orders combined.
-  // The price itself only reacts through tick volatility, which is
-  // mean-zero, so a pushed channel carries no guaranteed profit.
+  // The pushed activity only raises tick volatility, which is mean-zero,
+  // so it carries no guaranteed profit beyond the impact already paid.
   const rawActivity = normalizeActivity(stock.stockActivity);
   const target = action === 'buy' ? ACTIVITY_MAX : ACTIVITY_MIN;
   // Blend factor: full liquidity-consumed order fully commits toward target.
   const updatedActivity = rawActivity + (target - rawActivity) * impact;
   stock.stockActivity = normalizeActivity(updatedActivity);
+  // Commit the permanent price impact so buying a channel actually moves it.
+  stock.price = executionPrice;
 
   state.lastUpdated = new Date().toISOString();
 
@@ -437,7 +453,9 @@ export function placeTrade({ userId = 'demo', symbol, action, quantity }) {
     action,
     symbol,
     quantity: safeQty,
-    price,
+    price: executionPrice,
+    preTradePrice: price,
+    priceImpact: Number(priceImpact.toFixed(6)),
     impact: Number(impact.toFixed(6)),
     total,
     cash: Number(user.cash.toFixed(2)),
