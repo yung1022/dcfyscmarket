@@ -122,10 +122,10 @@ function ouStep(activity, volatility) {
 }
 
 // Channel impact for a single order: how much the trade shifts the stock's
-// activity AND its price. Proportional to order size relative to the stock's
-// liquidity depth, so whales move the channel more than small orders — and
-// crucially, spamming many small buys moves it far less than one equivalent
-// large order would, because the shift is applied as a geometric blend (see
+// activity. Proportional to order size relative to the stock's liquidity
+// depth, so whales move the channel more than small orders — and crucially,
+// spamming many small buys moves it far less than one equivalent large order
+// would, because the shift is applied as a geometric blend (see
 // placeTradeInDb).
 function computeTradeImpact(stock, sharesToTrade) {
   const price = Number(stock.price) || 0;
@@ -135,12 +135,9 @@ function computeTradeImpact(stock, sharesToTrade) {
   return clamp(sharesToTrade / liquidityShares, 0, 1);
 }
 
-// Permanent price impact of a trade, as a fraction of the current price.
-// Bounded (IMPACT_PRICE_CAP) so even a full liquidity-consumption order
-// Permanent price impact of a trade was removed: trades no longer move the
-// price directly. An order only shifts the stock's channel activity, which
-// decays through the OU pump-reversion step and raises mean-zero tick noise —
-// so buying cannot guarantee a price move at all.
+// Gradual price momentum converts channel activity into a small per-tick
+// directional drift that fades as the OU step decays the channel — no instant
+// price impact on trade execution.
 
 const HISTORY_CAP = 200;
 const SAMPLE_INTERVALS = [
@@ -364,18 +361,37 @@ export async function getMarketDataFromDb() {
   };
 }
 
+// Gradual price momentum: trades shift channel activity, and the tick engine
+// converts that activity into a small directional drift that fades as the
+// channel decays. Scaled by the SAME liquidity depth the trade impact uses, so
+// the total drift a whale can buy is bounded by the depth they consumed.
+const MOMENTUM_DRIFT_SCALE = 0.002;   // max per-tick drift at |activity| = 1
+const MOMENTUM_LIQUIDITY_FLOOR = 5e5; // floor: tiny caps still get capped drift
+
+function computeMomentumDrift(stock) {
+  const activity = normalizeActivity(stock.stockActivity);
+  const price = Number(stock.price) || 0;
+  const marketCap = parseMarketCap(stock.marketCap) || price * 1e6;
+  // The bigger the liquidity depth (bigger cap), the slower one person's
+  // trading translates into drift — matches computeTradeImpact's denominator.
+  const liquidityFactor = clamp(Math.sqrt(MOMENTUM_LIQUIDITY_FLOOR / marketCap), 0, 1);
+  return activity * MOMENTUM_DRIFT_SCALE * liquidityFactor;
+}
+
 function computeTickPrice(stock) {
   const activity = normalizeActivity(stock.stockActivity);
   const drift = Number.isFinite(Number(stock.trend)) ? Number(stock.trend) : 0;
   const volatility = Number.isFinite(Number(stock.volatility)) ? Number(stock.volatility) : 0.006;
-  // Stock activity is the volatility: price shocks scale with |activity|.
+  // Base shocks still scale with |activity| (busier channel = wider swings).
   const noise = gaussianNoise() * volatility * (0.25 + Math.abs(activity));
-  // Activity scales VOLATILITY only, never a deterministic direction. Trades
-  // move the price through the explicit, paid-for impact in placeTradeInDb
-  // (buyers push the price up and pay it; sellers push it down and eat it).
-  // Tick noise stays mean-zero, so a pushed channel decays back rather than
-  // guaranteeing further drift.
-  return clamp(stock.price * (1 + drift + noise), 0.0001, 10000);
+  // NO instant price impact: the trade itself only moves channel activity.
+  // The directional component is applied HERE, per tick, as a small drift
+  // proportional to the sign and size of the activity. Because the OU step
+  // decays activity back toward 0 every tick (faster when |activity| is
+  // large), the drift fades within a handful of ticks — pushing buys yields
+  // a gradual, decaying uptrend, never an instant jump.
+  const momentum = computeMomentumDrift(stock);
+  return clamp(stock.price * (1 + drift + momentum + noise), 0.0001, 10000);
 }
 
 export async function tickMarketInDb() {
@@ -402,9 +418,9 @@ export async function tickMarketInDb() {
     const currentPrice = Number(stock.price);
     if (!Number.isFinite(currentPrice) || currentPrice <= 0) return;
 
-    // Trade impact and settlement happen in placeTradeInDb: orders execute at
-    // the post-impact price, so pump-and-dump round trips always cost more in
-    // slippage than they gain in drift.
+    // NO instant price impact: orders settle at the pre-trade price. The
+    // pushed channel activity instead feeds a small per-tick momentum drift
+    // in computeTickPrice, which fades as the OU step decays the channel.
 
     // Ornstein-Uhlenbeck tick: activity mean-reverts and is shocked by the
     // stock's volatility, then drives the price direction and magnitude.
@@ -530,10 +546,10 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       return;
     }
 
-    // Price impact was removed: trades settle at the clean mid price — no
-    // slippage, no instant price move. Pump resistance comes entirely from
-    // the channel activity blended below, which the OU step then decays
-    // toward neutral (see computeTradeImpact and ouStep).
+    // NO slippage at execution: the order settles at the clean mid price.
+    // Pump resistance comes from the channel activity blended below, which
+    // the OU step then decays toward neutral (see computeTradeImpact and
+    // ouStep).
     const channelImpact = computeTradeImpact(stock, sharesToTrade);
     const total = Number((price * sharesToTrade).toFixed(4));
 
@@ -552,9 +568,10 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
     // direction geometrically rather than additively. Spamming small buys
     // converges toward the channel limit with diminishing returns and can
     // never overshoot it, while the equivalent single large order would move
-    // the channel by the same amount. The pushed activity only raises tick
-    // volatility, which is mean-zero, so it carries no edge beyond the
-    // impact already paid at execution.
+    // the channel by the same amount. The order settles at the pre-trade
+    // price: NO instant price impact. The pushed activity instead feeds a
+    // small per-tick momentum drift in computeTickPrice, which fades as the
+    // OU step decays the channel.
     const currentActivity = normalizeActivity(stock.stockActivity);
     const target = action === 'buy' ? ACTIVITY_MAX : ACTIVITY_MIN;
     const updatedActivity = currentActivity + (target - currentActivity) * channelImpact;
