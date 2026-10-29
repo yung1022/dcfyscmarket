@@ -365,16 +365,21 @@ export async function getMarketDataFromDb() {
 // converts that activity into a small directional drift that fades as the
 // channel decays. Scaled by the SAME liquidity depth the trade impact uses, so
 // the total drift a whale can buy is bounded by the depth they consumed.
-const MOMENTUM_DRIFT_SCALE = 0.002;   // max per-tick drift at |activity| = 1
-const MOMENTUM_LIQUIDITY_FLOOR = 5e5; // floor: tiny caps still get capped drift
+const MOMENTUM_DRIFT_SCALE = 0.006;   // max per-tick drift at |activity| = 1
+const MOMENTUM_LIQUIDITY_FLOOR = 5e8; // damping reference cap
+const MOMENTUM_MIN_LIQUIDITY_FACTOR = 0.1; // even mega-caps keep some drift
 
 function computeMomentumDrift(stock) {
   const activity = normalizeActivity(stock.stockActivity);
   const price = Number(stock.price) || 0;
   const marketCap = parseMarketCap(stock.marketCap) || price * 1e6;
-  // The bigger the liquidity depth (bigger cap), the slower one person's
-  // trading translates into drift — matches computeTradeImpact's denominator.
-  const liquidityFactor = clamp(Math.sqrt(MOMENTUM_LIQUIDITY_FLOOR / marketCap), 0, 1);
+  // Bigger caps damp the drift, but never below the floor: the OU pump
+  // reversion is the real anti-pump mechanism, not this damping.
+  const liquidityFactor = clamp(
+    Math.sqrt(MOMENTUM_LIQUIDITY_FLOOR / marketCap),
+    MOMENTUM_MIN_LIQUIDITY_FACTOR,
+    1
+  );
   return activity * MOMENTUM_DRIFT_SCALE * liquidityFactor;
 }
 

@@ -235,6 +235,8 @@ function renderMiniCharts(stock) {
 
 async function loadMarket() {
   try {
+    // GET only re-reads quotes; the market itself is advanced by an external
+    // cron job POSTing /api/market-updater every minute.
     const snapshot = await requestJson('/api/market-updater');
     stocks = snapshot.stocks || [];
     if (!stocks.some((stock) => stock.symbol === selectedSymbol)) {
