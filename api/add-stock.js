@@ -1,5 +1,9 @@
 import { createStockForCompany } from './lib/realtime-db.js';
 
+function randomBetween(min, max) {
+  return Math.random() * (max - min) + min;
+}
+
 function formatVolume(shares) {
   const value = Number(shares) || 0;
   if (value >= 1e12) return `${(value / 1e12).toFixed(2)}T`;
