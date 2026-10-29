@@ -137,20 +137,10 @@ function computeTradeImpact(stock, sharesToTrade) {
 
 // Permanent price impact of a trade, as a fraction of the current price.
 // Bounded (IMPACT_PRICE_CAP) so even a full liquidity-consumption order
-// cannot move the price more than a fraction of its value in one go.
-const IMPACT_PRICE_SCALE = 0.08;  // price moves up to ~8% at full liquidity consumption
-const IMPACT_PRICE_CAP = 0.25;
-
-function computeTradePriceImpact(stock, sharesToTrade, channelImpact) {
-  const impact = Number.isFinite(Number(channelImpact))
-    ? Number(channelImpact)
-    : computeTradeImpact(stock, sharesToTrade);
-  // sqrt keeps price impact sublinear in size: splitting one whale order into
-  // many small ones costs MORE total slippage (sum of sqrt chunks > sqrt of
-  // sum), so spammers pay a premium instead of a discount.
-  const priceMove = Math.sqrt(impact) * IMPACT_PRICE_SCALE;
-  return clamp(priceMove, 0, IMPACT_PRICE_CAP);
-}
+// Permanent price impact of a trade was removed: trades no longer move the
+// price directly. An order only shifts the stock's channel activity, which
+// decays through the OU pump-reversion step and raises mean-zero tick noise —
+// so buying cannot guarantee a price move at all.
 
 const HISTORY_CAP = 200;
 const SAMPLE_INTERVALS = [
@@ -540,16 +530,12 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       return;
     }
 
-    // Price impact: the trade moves the price permanently (buy up, sell down)
-    // and the order settles at the POST-impact price, so the trader pays the
-    // pump they create and eats the dump they cause. The impact is sublinear
-    // (sqrt) and blended geometrically, so spamming small orders costs more
-    // total slippage than one honest large order of the same size.
+    // Price impact was removed: trades settle at the clean mid price — no
+    // slippage, no instant price move. Pump resistance comes entirely from
+    // the channel activity blended below, which the OU step then decays
+    // toward neutral (see computeTradeImpact and ouStep).
     const channelImpact = computeTradeImpact(stock, sharesToTrade);
-    const priceImpact = computeTradePriceImpact(stock, sharesToTrade, channelImpact);
-    const direction = action === 'buy' ? 1 : -1;
-    const executionPrice = Number((price * (1 + direction * priceImpact)).toFixed(6));
-    const total = Number((executionPrice * sharesToTrade).toFixed(4));
+    const total = Number((price * sharesToTrade).toFixed(4));
 
     if (action === 'buy' && cash < total) {
       failure = 'Not enough cash to buy these shares.';
@@ -585,7 +571,6 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
     };
     stocks[normalizedSymbol] = {
       ...stock,
-      price: executionPrice,
       stockActivity: Number(updatedActivity.toFixed(6)),
       updatedAt: now
     };
@@ -594,9 +579,8 @@ export async function placeTradeInDb({ discordUserId, symbol, action, quantity }
       action,
       symbol: normalizedSymbol,
       quantity: sharesToTrade,
-      price: executionPrice,
-      preTradePrice: price,
-      priceImpact: Number(priceImpact.toFixed(6)),
+      price,
+      priceImpact: 0,
       impact: Number(channelImpact.toFixed(6)),
       stockActivity: Number(updatedActivity.toFixed(6)),
       total,

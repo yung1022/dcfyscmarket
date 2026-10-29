@@ -121,16 +121,10 @@ function computeTradeImpact(stock, sharesToTrade) {
   return clamp(sharesToTrade / liquidityShares, 0, 1);
 }
 
-// Permanent price impact of a trade, as a fraction of the current price.
-// Sublinear in size (sqrt) and bounded, so splitting one whale order into
-// many small ones costs MORE total slippage — spammers pay a premium.
-const IMPACT_PRICE_SCALE = 0.08;
-const IMPACT_PRICE_CAP = 0.25;
-
-function computeTradePriceImpact(channelImpact) {
-  const impact = Number.isFinite(Number(channelImpact)) ? Number(channelImpact) : 0;
-  return clamp(Math.sqrt(impact) * IMPACT_PRICE_SCALE, 0, IMPACT_PRICE_CAP);
-}
+// Permanent price impact of a trade was removed: trades no longer move the
+// price directly. An order only shifts the stock's channel activity, which
+// decays through the OU pump-reversion step and raises mean-zero tick noise —
+// so buying cannot guarantee a price move at all.
 
 // Estimate share volume traded this tick: scales with price movement and
 // absolute activity, with a baseline churn so quiet stocks still trade.
@@ -391,14 +385,12 @@ export function placeTrade({ userId = 'demo', symbol, action, quantity }) {
 
   const price = stock.price;
 
-  // Trades settle at the POST-impact price: buyers pay the pump they create,
-  // sellers eat the dump they cause. The impact is sublinear (sqrt) and the
-  // channel shift is geometrically blended, so spamming small orders costs
-  // more total slippage than one honest large order of the same size.
+  // Trades settle at the clean mid price — no slippage, no instant price
+  // impact. Pump resistance comes entirely from the channel activity below:
+  // the trade shifts activity geometrically, and the OU pump-reversion decay
+  // pulls it back toward neutral on the following ticks.
   const impact = computeTradeImpact(stock, safeQty);
-  const priceImpact = computeTradePriceImpact(impact);
-  const executionPrice = Number((price * (1 + (action === 'buy' ? 1 : -1) * priceImpact)).toFixed(6));
-  const total = Number((executionPrice * safeQty).toFixed(4));
+  const total = Number((price * safeQty).toFixed(4));
 
   if (action === 'buy') {
     if (user.cash < total) {
@@ -443,8 +435,6 @@ export function placeTrade({ userId = 'demo', symbol, action, quantity }) {
   // Blend factor: full liquidity-consumed order fully commits toward target.
   const updatedActivity = rawActivity + (target - rawActivity) * impact;
   stock.stockActivity = normalizeActivity(updatedActivity);
-  // Commit the permanent price impact so buying a channel actually moves it.
-  stock.price = executionPrice;
 
   state.lastUpdated = new Date().toISOString();
 
@@ -453,9 +443,8 @@ export function placeTrade({ userId = 'demo', symbol, action, quantity }) {
     action,
     symbol,
     quantity: safeQty,
-    price: executionPrice,
-    preTradePrice: price,
-    priceImpact: Number(priceImpact.toFixed(6)),
+    price,
+    priceImpact: 0,
     impact: Number(impact.toFixed(6)),
     total,
     cash: Number(user.cash.toFixed(2)),
