@@ -485,8 +485,8 @@ export async function getPortfolioFromDb(discordUserId) {
 
 export async function addCashToDb({ discordUserId, discordUsername, amount }) {
   const cashToAdd = Number(amount);
-  if (!Number.isFinite(cashToAdd) || cashToAdd <= -10000 || cashToAdd > 1000000000) {
-    throw new Error('Cash increment must be greater than 0 and no more than 1,000,000,000.');
+  if (!Number.isFinite(cashToAdd) || cashToAdd <= -100000 || cashToAdd > 1000000000) {
+    throw new Error('Cash increment must be greater than -100000 and no more than 1,000,000,000.');
   }
 
   const now = new Date().toISOString();
