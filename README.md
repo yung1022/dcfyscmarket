@@ -8,6 +8,7 @@ A stock-market dashboard designed for Vercel.
 - `styles.css` — market-dashboard styling
 - `script.js` — fetches market data and sends buy/sell requests
 - `api/market-updater.js` — reads quotes or advances the Firebase-backed market on POST
+- `api/s1-data.js` — fetches S1 data from its upstream API server-side
 - `api/add-stock.js` — adds a stock with a company name
 - `api/trade.js` — executes authenticated Firebase-backed trades
 - `api/portfolio.js` — returns the signed-in user's portfolio
@@ -26,6 +27,7 @@ Then open the local Vercel URL.
 
 ## API workflow
 
+- `GET /api/s1-data` proxies the upstream S1 data response server-side, so browser clients do not need cross-origin access to that API.
 - `GET /api/market-updater` reads quotes from Realtime Database path `/stocks`.
 - `POST /api/market-updater` advances every valid Firebase stock price by one market tick and updates its history. GET never advances prices.
 - `POST /api/add-stock` accepts `{ "company": "Example Company" }`, generates a unique symbol, and defaults `price`, `marketCap`, and `value` to `0.01`.
