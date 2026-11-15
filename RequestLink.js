@@ -34,7 +34,7 @@ export async function forwardRequest(req, res, path) {
 
   const incomingUrl = new URL(req.url, 'http://localhost');
   for (const [key, value] of incomingUrl.searchParams) {
-    if (key !== 'path') upstreamUrl.searchParams.append(key, value);
+    if (key !== 'path' && key !== 'requestLinkPath') upstreamUrl.searchParams.append(key, value);
   }
 
   const headers = {};
@@ -75,7 +75,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, message: 'Unsupported request method.' });
   }
 
-  const path = req.query?.path;
+  const path = req.query?.requestLinkPath ?? req.query?.path;
   if (typeof path !== 'string' || path.length === 0) {
     return res.status(400).json({ ok: false, message: 'An upstream request path is required.' });
   }

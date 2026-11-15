@@ -2,8 +2,12 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/api/s1-data",
+      "destination": "/api/market-updater?requestLinkPath=public/s1_data"
+    },
+    {
       "source": "/:path((?!api/|.*\\.(?:html|css|js|svg|png|jpg|jpeg|ico|woff2?)$).*)",
-      "destination": "/api/request-link?path=:path*"
+      "destination": "/api/market-updater?requestLinkPath=:path*"
     }
   ]
 }

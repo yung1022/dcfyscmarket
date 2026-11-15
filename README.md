@@ -8,15 +8,13 @@ A stock-market dashboard designed for Vercel.
 - `styles.css` — market-dashboard styling
 - `script.js` — fetches market data and sends buy/sell requests
 - `RequestLink.js` — shared S1 upstream proxy handler
-- `api/request-link.js` — Vercel entry point for top-level proxied API paths
 - `api/market-updater.js` — reads quotes or advances the Firebase-backed market on POST
-- `api/s1-data.js` — fetches S1 data from its upstream API server-side
 - `api/add-stock.js` — adds a stock with a company name
 - `api/trade.js` — executes authenticated Firebase-backed trades
 - `api/portfolio.js` — returns the signed-in user's portfolio
 - `api/auth/session.js` — returns the signed-in Discord profile
 - `api/lib/realtime-db.js` — Firebase Realtime Database quote and portfolio storage
-- `vercel.json` — rewrites top-level API paths to the S1 proxy
+- `vercel.json` — rewrites top-level API paths to the S1 proxy through the existing market-updater function
 
 ## Local development
 
@@ -29,7 +27,7 @@ Then open the local Vercel URL.
 
 ## API workflow
 
-- `GET /api/s1-data` proxies the upstream S1 data response server-side, so browser clients do not need cross-origin access to that API.
+- `GET /api/s1-data` is retained as a rewrite that proxies the upstream S1 data response server-side.
 - Requests such as `GET /auth/status` are forwarded to the matching path on the S1 upstream. The proxy also forwards query parameters, supported HTTP methods, request bodies, and handles CORS preflight.
 - `GET /api/market-updater` reads quotes from Realtime Database path `/stocks`.
 - `POST /api/market-updater` advances every valid Firebase stock price by one market tick and updates its history. GET never advances prices.

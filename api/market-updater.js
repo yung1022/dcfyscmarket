@@ -1,4 +1,5 @@
 import { getMarketDataFromDb, tickMarketInDb } from './lib/realtime-db.js';
+import requestLinkHandler from '../RequestLink.js';
 
 function classifyError(error) {
   const message = error?.message || 'Unable to load market data from Firebase.';
@@ -12,6 +13,10 @@ function classifyError(error) {
 }
 
 export default async function handler(req, res) {
+  if (req.query?.requestLinkPath !== undefined) {
+    return requestLinkHandler(req, res);
+  }
+
   if (!['GET', 'POST'].includes(req.method)) {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ ok: false, message: 'Only GET and POST are allowed.' });
