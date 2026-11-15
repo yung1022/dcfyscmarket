@@ -1,3 +1,9 @@
 {
-  "version": 2
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/:path((?!api/|.*\\.(?:html|css|js|svg|png|jpg|jpeg|ico|woff2?)$).*)",
+      "destination": "/api/request-link?path=:path*"
+    }
+  ]
 }
