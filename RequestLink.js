@@ -1,4 +1,4 @@
-export const S1_DATA_URL = 'https://netherlands-apiprox-fyscs1-private44.tnstats.dev';
+export const S1_DATA_URL = 'https://texas-apiprox-fyscs1-private44.tnstats.dev';
 
 const ALLOWED_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const ALLOW_METHODS_HEADER = `${ALLOWED_METHODS.join(', ')}, OPTIONS`;
